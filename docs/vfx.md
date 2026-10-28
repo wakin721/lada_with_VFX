@@ -89,11 +89,13 @@ The **Windows NVIDIA VFX** workflow runs timing/lifecycle tests, builds Windows
 CLI and GTK GUI executables, bundles VFX DLLs and license notices, and uploads a
 portable `.7z` artifact with checksums. Open Actions, select this workflow, and
 choose **Run workflow** to rebuild. Uncheck `build_gui` for a CLI-only package.
-Pushes to `main` or `vfx/**` also build automatically.
+Pushes to `main` or `vfx/**` also build automatically. By default it uses the
+upstream-recommended prebuilt GTK package and verifies its documented SHA256.
+Check `build_gtk_from_source` to rebuild those native dependencies instead.
 
 Hosted GitHub runners do not have a supported RTX GPU. CI verifies Python
 compilation, timing logic and packaging, not GPU inference or visual quality.
-The first GTK build can take a long time; later builds reuse the GTK cache.
+Building GTK from source can take a long time; later source builds reuse the GTK cache.
 
 For a local GPU smoke test without restoration model weights:
 

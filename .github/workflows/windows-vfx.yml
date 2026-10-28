@@ -11,6 +11,10 @@ on:
         description: Build the GTK GUI as well as the CLI
         type: boolean
         default: true
+      build_gtk_from_source:
+        description: Rebuild GTK dependencies instead of using Lada's verified prebuilt package
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,6 +47,7 @@ jobs:
       UV_HTTP_TIMEOUT: '300'
       PYTHONUTF8: '1'
       BUILD_GUI: ${{ github.event_name != 'workflow_dispatch' || inputs.build_gui }}
+      BUILD_GTK: ${{ github.event_name == 'workflow_dispatch' && inputs.build_gtk_from_source }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,24 +63,37 @@ jobs:
           choco install ffmpeg vcredist2013 --yes --no-progress
           python -m pip install setuptools==80.9.0
       - uses: msys2/setup-msys2@v2
-        if: env.BUILD_GUI == 'true'
+        if: env.BUILD_GUI == 'true' && env.BUILD_GTK == 'true'
         with:
           location: C:\msys64
           update: true
       - name: Cache GTK build
-        if: env.BUILD_GUI == 'true'
+        if: env.BUILD_GUI == 'true' && env.BUILD_GTK == 'true'
         uses: actions/cache/restore@v4
         with:
           path: p/build_gtk_release
           key: gtk-win2022-py31312-gvs202610-st809-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}-${{ github.run_id }}
           restore-keys: gtk-win2022-py31312-gvs202610-st809-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}-
+      - name: Install verified upstream GTK dependencies
+        if: env.BUILD_GUI == 'true' && env.BUILD_GTK != 'true'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          # Source and SHA256 are documented by upstream in docs/windows_install.md.
+          curl.exe --fail --location --retry 3 --output gtk-dependencies.7z https://pixeldrain.com/api/file/SB1nGZJQ
+          $expected = '171152e8df65556f02065e080ec087153aaaa39634346b3dbe08a4f0f0d3ba1f'
+          if ((Get-FileHash gtk-dependencies.7z -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'GTK dependency checksum mismatch' }
+          7z.exe x gtk-dependencies.7z -y
+          Move-Item -LiteralPath build_gtk -Destination build_gtk_release
+          if (!(Test-Path ./build_gtk_release/gtk/x64/release/bin/gdbus.exe)) { throw 'Incomplete GTK runtime' }
       - name: Build portable NVIDIA VFX package
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $env:Path = "C:\msys64\usr\bin;" + $env:Path
           $cliOnly = $env:BUILD_GUI -ne 'true'
-          ./packaging/windows/package_executable.ps1 -extra nvidia -withVfx -skipWinget -skipTranslations:$cliOnly -cliOnly:$cliOnly
+          $skipGvsbuild = $env:BUILD_GTK -ne 'true'
+          ./packaging/windows/package_executable.ps1 -extra nvidia -withVfx -skipWinget -skipGvsbuild:$skipGvsbuild -skipTranslations:$cliOnly -cliOnly:$cliOnly
       - name: Smoke test packaged CLI and VFX resources
         run: |
           $ErrorActionPreference = 'Stop'
@@ -84,7 +102,9 @@ jobs:
           if (!(Test-Path ./dist/lada/_internal/nvvfx)) { throw 'Missing nvvfx package' }
           $native = Get-ChildItem ./dist/lada/_internal/nvvfx -Recurse -File | Where-Object { $_.Extension -in '.dll', '.pyd' }
           if (!$native) { throw 'Missing NVIDIA VFX native libraries' }
-          uv pip check --python ./venv_release_win/Scripts/python.exe
+          # Upstream intentionally substitutes polars-lts-cpu for polars, so a
+          # blanket metadata-only pip check incorrectly flags that substitution.
+          ./venv_release_win/Scripts/python.exe -c "import torch, av, nvvfx, polars; print(torch.__version__, nvvfx.__version__)"
       - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:
@@ -95,7 +115,7 @@ jobs:
           compression-level: 0
           retention-days: 14
       - name: Save GTK build progress
-        if: always() && env.BUILD_GUI == 'true'
+        if: always() && env.BUILD_GUI == 'true' && env.BUILD_GTK == 'true'
         uses: actions/cache/save@v4
         with:
           path: p/build_gtk_release
