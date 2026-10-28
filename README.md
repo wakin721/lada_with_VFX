@@ -5,7 +5,7 @@
 </h1>
 
 This fork adds optional NVIDIA VFX super resolution, denoising and frame generation
-to video export. See [VFX setup and usage](docs/vfx.md). Portable Windows builds
+to video export and optional live preview. See [VFX setup and usage](docs/vfx.md). Portable Windows builds
 are available under [GitHub Actions](https://github.com/wakin721/lada_with_VFX/actions/workflows/windows-vfx.yml).
 
 *Lada* is a tool designed to recover pixelated adult videos (JAV). It helps restore the visual quality of such content, making it more enjoyable to watch.

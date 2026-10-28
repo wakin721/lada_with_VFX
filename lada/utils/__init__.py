@@ -61,6 +61,7 @@ class VideoMetadata:
     duration: float
     time_base: Fraction
     start_pts: int
+    variable_frame_rate: bool = False
 
 @dataclass
 class Detection:

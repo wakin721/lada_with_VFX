@@ -50,6 +50,7 @@ class Config(GObject.Object):
         'temp_directory': tempfile.gettempdir(),
         'detect_face_mosaics': False,
         'subtitles_font_size': 16,
+        'vfx_preview_enabled': False,
         'vfx_scale': 1,
         'vfx_denoise': 'off',
         'vfx_multiplier': 1,
@@ -81,6 +82,7 @@ class Config(GObject.Object):
         self._fp16_enabled = self._defaults['fp16_enabled']
         self._detect_face_mosaics = self._defaults['detect_face_mosaics']
         self._subtitles_font_size = self._defaults['subtitles_font_size']
+        self._vfx_preview_enabled = self._defaults['vfx_preview_enabled']
         self._vfx_scale = self._defaults['vfx_scale']
         self._vfx_denoise = self._defaults['vfx_denoise']
         self._vfx_multiplier = self._defaults['vfx_multiplier']
@@ -101,6 +103,16 @@ class Config(GObject.Object):
             return
         self._seek_preview_enabled = value
         self.save()
+
+    @GObject.Property(type=bool, default=False)
+    def vfx_preview_enabled(self):
+        return self._vfx_preview_enabled
+
+    @vfx_preview_enabled.setter
+    def vfx_preview_enabled(self, value):
+        if value != self._vfx_preview_enabled:
+            self._vfx_preview_enabled = value
+            self.save()
 
     @GObject.Property(type=int, default=1)
     def vfx_scale(self):
@@ -428,6 +440,7 @@ class Config(GObject.Object):
         self.validate_and_set_device(self._defaults['device'])
         self.detect_face_mosaics = self._defaults['detect_face_mosaics']
         self.subtitles_font_size = self._defaults['subtitles_font_size']
+        self.vfx_preview_enabled = self._defaults['vfx_preview_enabled']
         self.vfx_scale = self._defaults['vfx_scale']
         self.vfx_denoise = self._defaults['vfx_denoise']
         self.vfx_multiplier = self._defaults['vfx_multiplier']
@@ -466,6 +479,7 @@ class Config(GObject.Object):
             'temp_directory': self._temp_directory,
             'detect_face_mosaics': self._detect_face_mosaics,
             'subtitles_font_size': self._subtitles_font_size,
+            'vfx_preview_enabled': self._vfx_preview_enabled,
             'vfx_scale': self._vfx_scale,
             'vfx_denoise': self._vfx_denoise,
             'vfx_multiplier': self._vfx_multiplier,
@@ -488,7 +502,9 @@ class Config(GObject.Object):
     def _from_dict(self, dict):
         for key in self._defaults:
             if key in dict and dict[key] is not None:
-                if key.startswith('vfx_'):
+                if key == 'vfx_preview_enabled':
+                    self._vfx_preview_enabled = dict[key] if type(dict[key]) is bool else False
+                elif key.startswith('vfx_'):
                     from dataclasses import replace
                     from lada.utils.vfx import VfxOptions
                     try:

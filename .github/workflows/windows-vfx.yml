@@ -105,6 +105,7 @@ jobs:
           # Upstream intentionally substitutes polars-lts-cpu for polars, so a
           # blanket metadata-only pip check incorrectly flags that substitution.
           ./venv_release_win/Scripts/python.exe -c "import torch, av, nvvfx, polars; print(torch.__version__, nvvfx.__version__)"
+          ./venv_release_win/Scripts/python.exe scripts/check_vfr_timing.py
       - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:

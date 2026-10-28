@@ -1,8 +1,8 @@
 # NVIDIA VFX export
 
 This fork adds optional NVIDIA Video Super Resolution, same-resolution denoising,
-and Video Frame Generation to the CLI and GUI **export** path. Playback previews
-continue to use the normal pipeline. All VFX options are off by default.
+and Video Frame Generation to CLI/GUI export and optional live preview. All VFX
+options, including live preview, are off by default.
 
 The processing order is denoise -> frame generation -> super resolution -> encoder.
 Frame generation runs at the source resolution. Original frames and generated
@@ -25,10 +25,12 @@ subject to NVIDIA's terms; Lada's source license is unchanged.
 
 ## GUI
 
-Open the Export settings sidebar and expand **NVIDIA VFX**. Set super resolution
+Open the settings sidebar and expand **NVIDIA VFX** under **Video enhancement**. Set super resolution
 to 2x/3x/4x, choose a denoise level, and select a frame-rate multiplier (2x–8x).
 Each feature can be enabled independently. Settings persist with the normal
-configuration and are locked while export is running.
+configuration and are locked while export is running. Enable **VFX in preview**
+to apply the same settings during playback. Changes reset the preview at its
+current position; seeks discard frame interpolation history.
 
 A practical starting point for an RTX 5070 Ti is 2x super resolution, LOW denoise,
 2x frame rate, HIGH super-resolution quality and MEDIUM frame-generation quality.
@@ -53,14 +55,18 @@ Additional switches:
 | `--vfx-frame-quality` | LOW, MEDIUM, HIGH | MEDIUM |
 
 Frame rates are multiplied exactly: 29.97 becomes 59.94 at 2x, rather than 60.
-Input PTS gaps are used for variable-frame-rate interpolation. The last image is
-held over one nominal source-frame interval to preserve duration for CFR input;
-the last duration of VFR input is estimated from the nominal rate. Audio goes
+Input PTS gaps are used for variable-frame-rate interpolation. The actual media
+end time preserves the final image duration, including long still sections in
+screen recordings. Preview duration uses stream duration rather than frame
+count divided by the nominal timestamp clock. Implausible nominal frame rates
+(e.g. a 90000 Hz clock) are replaced with the average frame rate. Audio goes
 through the existing muxing path. Pause/resume retains interpolation state.
 
 The pipeline currently uses the existing 8-bit RGB export path; it does not add
 HDR or 10-bit export. Enabling VFX adds processing work, and does not accelerate
-the existing restoration models. Real-time playback performance is not promised.
+the existing restoration models. Live playback depends on resolution, quality
+and content; benchmark representative clips. First-time model initialization
+can take substantially longer than steady-state processing.
 
 ## GitHub Actions
 
@@ -112,3 +118,21 @@ a short file. It does not read any user videos.
 - [NVIDIA VFX Python package](https://pypi.org/project/nvidia-vfx/)
 - [VSR requirements and modes](https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html)
 - [VFG requirements and parameters](https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoFrameGeneration.html)
+
+## Frame transfer and playback errors
+
+When VFX is active, full-frame composition runs on the selected CUDA device.
+GPU-restored regions no longer travel to CPU and then back to GPU for VFX.
+Super resolution, denoise and interpolation exchange owned CUDA tensors through
+DLPack. The restoration output queue is bounded to four GPU frames.
+
+The preview keeps frames on GPU through VFX and performs a pinned-host download
+only at the GTK/GStreamer display boundary. Transfer synchronization waits for
+that stream rather than synchronizing the entire device. The existing Windows
+GTK sink still consumes CPU pixels, and the PyAV encoder still needs CPU images;
+this is not a fully zero-copy NVDEC/CUDA/NVENC pipeline.
+
+The Windows build uses a dedicated GStreamer plugin registry per installation
+and runtime revision to avoid reusing stale portable-app plugin paths. Decode,
+initialization, model and VFX errors are surfaced in the preview instead of
+leaving the loading indicator indefinitely visible.

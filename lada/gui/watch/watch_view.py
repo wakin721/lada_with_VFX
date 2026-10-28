@@ -20,6 +20,8 @@ from lada.gui.watch.overlay_elements_controller import OverlayElementsController
 from lada.gui.watch.seek_preview_popover import SeekPreviewPopover
 from lada.gui.watch.timeline import Timeline
 from lada.gui.shortcuts import ShortcutsManager
+from lada.utils.vfx import VfxOptions
+from dataclasses import replace
 from lada.utils import audio_utils, video_utils
 
 here = pathlib.Path(__file__).parent.resolve()
@@ -356,6 +358,14 @@ class WatchView(Gtk.Widget):
                 self.pipeline_manager.set_subtitle_font_size(self._config.subtitles_font_size)
         self._config.connect('notify::subtitles-font-size', on_subtitles_font_size)
 
+        def on_vfx_changed(*_args):
+            if self._frame_restorer_options:
+                options = VfxOptions.from_config(self._config) if self._config.vfx_preview_enabled else None
+                self.frame_restorer_options = replace(self.frame_restorer_options, vfx=options)
+        for name in ('vfx-preview-enabled', 'vfx-scale', 'vfx-denoise', 'vfx-multiplier',
+                     'vfx-quality', 'vfx-frame-quality'):
+            self._config.connect('notify::' + name, on_vfx_changed)
+
     def set_speaker_icon(self, mute: bool):
         icon_name = "speaker-0-symbolic" if mute else "speaker-4-symbolic"
         self.button_image_mute_unmute.set_property("icon-name", icon_name)
@@ -496,11 +506,34 @@ class WatchView(Gtk.Widget):
                 self.close_thumbnailer()
                 self.seek_preview_popover.clear_thumbnail()
                 for id in self.pipeline_connection_handler_ids: self.pipeline_manager.handler_unblock(id)
-            video_metadata = video_utils.get_video_meta_data(file.get_path())
-            subtitle_path = self._find_subtitle_file(video_metadata.video_file)
-            GLib.idle_add(lambda: self._open_file(video_metadata, subtitle_path))
+            try:
+                video_metadata = video_utils.get_video_meta_data(file.get_path())
+                subtitle_path = self._find_subtitle_file(video_metadata.video_file)
+                GLib.idle_add(lambda: self._open_file_safe(video_metadata, subtitle_path))
+            except Exception as error:
+                logger.exception('Opening video failed')
+                GLib.idle_add(lambda message=str(error): self.on_playback_error(message))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _open_file_safe(self, video_metadata, subtitle_path):
+        try:
+            self._open_file(video_metadata, subtitle_path)
+        except Exception as error:
+            logger.exception('Initializing preview failed')
+            self.on_playback_error(str(error))
+        return False
+
+    def on_playback_error(self, message):
+        self.should_be_paused = True
+        self.waiting_for_data = False
+        self.spinner_overlay.set_visible(False)
+        self._show_video_preview()
+        if self.pipeline_manager:
+            threading.Thread(target=self.pipeline_manager.close_video_file, daemon=True).start()
+        dialog = Adw.AlertDialog(heading=_("Video processing failed"), body=message)
+        dialog.add_response('ok', _('Okay'))
+        dialog.present(self)
 
     def _open_file(self, video_metadata: video_utils.VideoMetadata, subtitle_path: str | None):
         assert not self._video_preview_init_done
@@ -512,7 +545,8 @@ class WatchView(Gtk.Widget):
                                                            self.config.show_mosaic_detections,
                                                            False,
                                                            self.config.fp16_enabled,
-                                                           self.config.detect_face_mosaics)
+                                                           self.config.detect_face_mosaics,
+                                                           vfx=VfxOptions.from_config(self.config) if self.config.vfx_preview_enabled else None)
         self.has_audio = audio_utils.get_audio_codec(self.video_metadata.video_file) is not None
         self.button_mute_unmute.set_sensitive(self.has_audio)
         self.set_speaker_icon(mute=not self.has_audio or self.config.mute_audio)
@@ -522,7 +556,7 @@ class WatchView(Gtk.Widget):
         self.waiting_for_data = False
 
         self.frame_duration_ns = (1 / self.video_metadata.video_fps) * Gst.SECOND
-        self.file_duration_ns = int((self.video_metadata.frames_count * self.frame_duration_ns))
+        self.file_duration_ns = round(self.video_metadata.duration * Gst.SECOND)
         self._buffer_queue_min_thresh_time_auto_min = float(self._frame_restorer_options.max_clip_length / self.video_metadata.video_fps_exact)
         self.buffer_queue_min_thresh_time_auto = self._buffer_queue_min_thresh_time_auto_min
 
@@ -542,7 +576,8 @@ class WatchView(Gtk.Widget):
                 self.pipeline_manager.connect("eos", lambda obj: GLib.idle_add(lambda: self.on_eos())),
                 self.pipeline_manager.connect("waiting-for-data", lambda obj, waiting_for_data: GLib.idle_add(lambda: self.on_waiting_for_data(waiting_for_data))),
                 self.pipeline_manager.connect("notify::state", lambda obj, spec: GLib.idle_add(lambda: self.on_pipeline_state(obj.get_property(spec.name)))),
-                self.pipeline_manager.connect("opening-subtitles-failed", lambda obj: GLib.idle_add(lambda: self.on_opening_subtitles_failed()))
+                self.pipeline_manager.connect("opening-subtitles-failed", lambda obj: GLib.idle_add(lambda: self.on_opening_subtitles_failed())),
+                self.pipeline_manager.connect('pipeline-error', lambda _obj, message: self.on_playback_error(message))
             ]
             GLib.timeout_add(100, self.update_current_position)
 

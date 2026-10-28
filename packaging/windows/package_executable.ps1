@@ -103,7 +103,8 @@ function Download-ModelWeights {
         if (Is-Downloaded $file_name $sha256) {
             return
         }
-        Invoke-WebRequest $url -OutFile (".\model_weights\" + $file_name)
+        Write-Host "Downloading model weights: $file_name"
+        Invoke-WebRequest $url -OutFile (".\model_weights\" + $file_name) -TimeoutSec 180 -MaximumRetryCount 2 -RetryIntervalSec 1
         if (!(Is-Downloaded $file_name $sha256)) {
             Write-Warning "Error downloading " + $url
             exit 1

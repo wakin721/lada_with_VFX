@@ -4,7 +4,7 @@
 
 
 class NvidiaVfxBackend:
-    def __init__(self, options, width, height, device):
+    def __init__(self, options, width, height, device, *, gpu_output=False):
         import torch
         try:
             from nvvfx import VideoSuperRes, VideoFrameGeneration
@@ -13,6 +13,7 @@ class NvidiaVfxBackend:
                                'or use the Windows VFX build. See docs/vfx.md.') from exc
 
         self.torch = torch
+        self.gpu_output = gpu_output
         self.device = torch.device(device)
         if self.device.type != 'cuda' or not torch.cuda.is_available():
             raise RuntimeError('NVIDIA VFX requires an NVIDIA CUDA device; select it in settings.')
@@ -79,7 +80,11 @@ class NvidiaVfxBackend:
         torch = self.torch
         with torch.cuda.device(self.device):
             result = self._run(self.upscaler, frame) if self.upscaler else frame
-            return result.mul(255).round().clamp(0, 255).to(torch.uint8).permute(1, 2, 0).contiguous().cpu().numpy()
+            result = result.mul(255).round().clamp(0, 255).to(torch.uint8).permute(1, 2, 0)
+            if self.gpu_output:
+                # GStreamer's appsrc consumes BGR. Convert before the sole D2H copy.
+                return result[..., [2, 1, 0]].contiguous()
+            return result.contiguous().cpu().numpy()
 
     def close(self):
         # Attempt every close even if a runtime reports an error during cleanup.

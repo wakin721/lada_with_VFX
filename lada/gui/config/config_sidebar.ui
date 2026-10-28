@@ -134,12 +134,18 @@ SPDX-License-Identifier: AGPL-3.0
                         </child>
                         <child>
                             <object class="AdwPreferencesGroup">
-                                <property name="title" translatable="true">Export</property>
-                                <property name="visible" bind-source="ConfigSidebar" bind-property="show-export-section"/>
+                                <property name="title" translatable="true">Video enhancement</property>
+                                <child>
+                                    <object class="AdwSwitchRow" id="switch_row_vfx_preview">
+                                        <property name="title" translatable="true">Enable VFX in preview</property>
+                                        <property name="subtitle" translatable="true">Apply enhancement while watching. Processing speed depends on your GPU and selected quality.</property>
+                                        <signal name="notify::active" handler="switch_row_vfx_preview_callback"/>
+                                    </object>
+                                </child>
                                 <child>
                                     <object class="AdwExpanderRow">
                                         <property name="title" translatable="true">NVIDIA VFX</property>
-                                        <property name="subtitle" translatable="true">Export only: denoise, frame generation and super resolution</property>
+                                        <property name="subtitle" translatable="true">Denoise, frame generation and super resolution</property>
                                         <child>
                                             <object class="AdwComboRow" id="combo_row_vfx_scale">
                                                 <property name="title" translatable="true">Super resolution</property>
@@ -172,6 +178,12 @@ SPDX-License-Identifier: AGPL-3.0
                                         </child>
                                     </object>
                                 </child>
+                            </object>
+                        </child>
+                        <child>
+                            <object class="AdwPreferencesGroup">
+                                <property name="title" translatable="true">Export</property>
+                                <property name="visible" bind-source="ConfigSidebar" bind-property="show-export-section"/>
                                 <child>
                                     <object class="AdwExpanderRow" id="expander_row_encoding_presets">
                                         <property name="title" translatable="true">Encoding Preset</property>

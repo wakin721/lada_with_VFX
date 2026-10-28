@@ -123,7 +123,8 @@ def process_video_file(input_path: str, output_path: str, temp_dir_path: str, de
     video_metadata = get_video_meta_data(input_path)
 
     frame_restorer = FrameRestorer(device, input_path, max_clip_length, mosaic_restoration_model_name,
-                 mosaic_detection_model, mosaic_restoration_model, preferred_pad_mode)
+                 mosaic_detection_model, mosaic_restoration_model, preferred_pad_mode,
+                 output_device=device if vfx and vfx.enabled else None)
     success = True
     video_tmp_file_output_path = os.path.join(temp_dir_path, f"{os.path.basename(os.path.splitext(output_path)[0])}.tmp{os.path.splitext(output_path)[1]}")
     pathlib.Path(output_path).parent.mkdir(exist_ok=True, parents=True)
@@ -134,7 +135,9 @@ def process_video_file(input_path: str, output_path: str, temp_dir_path: str, de
         with create_video_writer(video_tmp_file_output_path, video_metadata.video_width, video_metadata.video_height,
                          video_metadata.video_fps_exact, encoder=encoder, encoder_options=encoder_options,
                          time_base=video_metadata.time_base, mp4_fast_start=mp4_fast_start,
-                         vfx=vfx, device=device) as video_writer:
+                         vfx=vfx, device=device, duration=video_metadata.duration,
+                         start_pts=video_metadata.start_pts,
+                         variable_frame_rate=video_metadata.variable_frame_rate) as video_writer:
             for elem in frame_restorer:
                 if elem is STOP_MARKER or isinstance(elem, ErrorMarker):
                     success = False

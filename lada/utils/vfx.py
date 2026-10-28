@@ -46,12 +46,13 @@ class VfxVideoWriter:
     pads the last source-frame interval; pausing does not finalize the stream.
     """
 
-    def __init__(self, writer, backend, options, fps, time_base):
+    def __init__(self, writer, backend, options, fps, time_base, end_pts=None):
         self.writer = writer
         self.backend = backend
         self.options = options
         self.time_base = Fraction(time_base)
         self.frame_interval = Fraction(1, 1) / Fraction(fps) / self.time_base
+        self.end_pts = end_pts
         self.previous = None
         self.previous_pts = None
         self.frames = deque()
@@ -116,8 +117,9 @@ class VfxVideoWriter:
                 # Hold the final image for the nominal final source-frame duration.
                 # This preserves CFR duration (N input frames -> N*M output frames).
                 if self.previous is not None:
+                    final_interval = max(1, self.end_pts - self.previous_pts) if self.end_pts is not None else self.frame_interval
                     for index in range(1, self.options.multiplier):
-                        pts = self.previous_pts * self.options.multiplier + round(self.frame_interval * index)
+                        pts = self.previous_pts * self.options.multiplier + round(final_interval * index)
                         self._emit(self.previous, pts)
         finally:
             try:
@@ -129,13 +131,18 @@ class VfxVideoWriter:
 
 
 def create_video_writer(output_path, width, height, fps, encoder, encoder_options,
-                        time_base=None, mp4_fast_start=False, *, vfx=None, device='cuda:0'):
+                        time_base=None, mp4_fast_start=False, *, vfx=None, device='cuda:0', duration=None, start_pts=0, variable_frame_rate=False):
     from lada.utils.video_utils import VideoWriter
 
     options = vfx or VfxOptions()
+    end_time = (Fraction(start_pts or 0) * Fraction(time_base) + Fraction(str(duration))) if duration is not None and time_base is not None else None
     if not options.enabled:
-        return VideoWriter(output_path, width, height, fps, encoder, encoder_options,
-                           time_base=time_base, mp4_fast_start=mp4_fast_start)
+        writer = VideoWriter(output_path, width, height, fps, encoder, encoder_options,
+                           time_base=time_base, mp4_fast_start=mp4_fast_start,
+                           variable_frame_rate=variable_frame_rate)
+        if end_time is not None:
+            writer.set_end_time(end_time)
+        return writer
     if time_base is None or Fraction(time_base) <= 0 or Fraction(fps) <= 0:
         raise ValueError('VFX export requires a valid video time base and frame rate')
     from lada.utils.vfx_nvidia import NvidiaVfxBackend
@@ -145,11 +152,14 @@ def create_video_writer(output_path, width, height, fps, encoder, encoder_option
         writer = VideoWriter(output_path, width * options.scale, height * options.scale,
                              fps * options.multiplier, encoder, encoder_options,
                              time_base=Fraction(time_base) / options.multiplier,
-                             mp4_fast_start=mp4_fast_start)
+                             mp4_fast_start=mp4_fast_start, variable_frame_rate=variable_frame_rate)
+        if end_time is not None:
+            writer.set_end_time(end_time)
     except BaseException:
         backend.close()
         raise
-    return VfxVideoWriter(writer, backend, options, fps, time_base)
+    return VfxVideoWriter(writer, backend, options, fps, time_base,
+                          end_pts=end_time / Fraction(time_base) if end_time is not None else None)
 
 
 def release_video_writer(writer, *, finalize=True):

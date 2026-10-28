@@ -54,6 +54,7 @@ class ConfigSidebar(Gtk.Box):
     expander_row_restoration_models: Adw.ExpanderRow = Gtk.Template.Child()
     spin_row_subtitles_font_size: Adw.SpinRow = Gtk.Template.Child()
 
+    switch_row_vfx_preview = Gtk.Template.Child()
     combo_row_vfx_scale = Gtk.Template.Child()
     combo_row_vfx_denoise = Gtk.Template.Child()
     combo_row_vfx_multiplier = Gtk.Template.Child()
@@ -160,6 +161,7 @@ class ConfigSidebar(Gtk.Box):
         self.toggle_button_initial_view_preview.set_active(config.initial_view == "watch")
         self.toggle_button_initial_view_export.set_active(config.initial_view == "export")
 
+        self.switch_row_vfx_preview.set_active(config.vfx_preview_enabled)
         self._vfx_values = {}
         self._vfx_values['vfx_scale'] = (1, 2, 3, 4)
         self.combo_row_vfx_scale.set_model(Gtk.StringList.new([_(label) for label in ('Off', '2x', '3x', '4x')]))
@@ -219,6 +221,11 @@ class ConfigSidebar(Gtk.Box):
     @show_export_section.setter
     def show_export_section(self, value):
         self._show_export_section = value
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def switch_row_vfx_preview_callback(self, row, _param):
+        self._config.vfx_preview_enabled = row.get_active()
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized

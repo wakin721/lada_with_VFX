@@ -975,3 +975,23 @@ msgstr "高"
 #. NVIDIA VFX export settings
 msgid "Ultra"
 msgstr "極高"
+
+#. NVIDIA VFX live preview
+msgid "Video enhancement"
+msgstr "影片增強"
+
+#. NVIDIA VFX live preview
+msgid "Enable VFX in preview"
+msgstr "預覽時啟用 VFX"
+
+#. NVIDIA VFX live preview
+msgid "Apply enhancement while watching. Processing speed depends on your GPU and selected quality."
+msgstr "播放時套用增強，處理速度取決於顯示卡及畫質設定。"
+
+#. NVIDIA VFX live preview
+msgid "Denoise, frame generation and super resolution"
+msgstr "降噪、補幀和超解析度"
+
+#. NVIDIA VFX live preview
+msgid "Video processing failed"
+msgstr "影片處理失敗"

@@ -25,8 +25,9 @@ logging.basicConfig(level=LOG_LEVEL)
 class FrameRestorer:
     def __init__(self, device, video_file, max_clip_length, mosaic_restoration_model_name,
                  mosaic_detection_model: Yolo11SegmentationModel, mosaic_restoration_model, preferred_pad_mode,
-                 mosaic_detection=False):
+                 mosaic_detection=False, output_device=None):
         self.device = torch.device(device)
+        self.output_device = torch.device(output_device) if output_device is not None else None
         self.mosaic_restoration_model_name = mosaic_restoration_model_name
         self.max_clip_length = max_clip_length
         self.video_meta_data = video_utils.get_video_meta_data(video_file)
@@ -41,7 +42,9 @@ class FrameRestorer:
 
         # limit queue size to approx 512MB
         max_frames_in_frame_restoration_queue = (512 * 1024 * 1024) // (self.video_meta_data.video_width * self.video_meta_data.video_height * 3)
-        self.frame_restoration_queue = PipelineQueue(name="frame_restoration_queue", maxsize=max_frames_in_frame_restoration_queue)
+        if self.output_device is not None and self.output_device.type == 'cuda':
+            max_frames_in_frame_restoration_queue = min(4, max_frames_in_frame_restoration_queue)
+        self.frame_restoration_queue = PipelineQueue(name="frame_restoration_queue", maxsize=max(1, max_frames_in_frame_restoration_queue))
 
         # limit queue size to approx 512MB
         max_clips_in_mosaic_clips_queue = max(1, (512 * 1024 * 1024) // (self.max_clip_length * 256 * 256 * 4)) # 4 = 3 color channels + mask
@@ -325,6 +328,10 @@ class FrameRestorer:
                     self.frame_restoration_queue.put(EOF_MARKER)
                     break
                 num_mosaics_detected, frame, frame_pts = _frame_result
+                if self.output_device is not None:
+                    # Blend the GPU-restored regions into a GPU full frame and
+                    # pass it directly to VFX, avoiding per-region GPU->CPU->GPU.
+                    frame = frame.to(self.output_device)
                 if num_mosaics_detected > 0:
                     while queue_marker is None and not self._clip_buffer_contains_all_cips_needed_for_current_restoration(frame_num, num_mosaics_detected, clip_buffer):
                         queue_marker = self._read_next_clip(frame_num, clip_buffer)

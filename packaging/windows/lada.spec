@@ -16,6 +16,15 @@ def get_project_root() -> str:
     assert (project_root / "pyproject.toml").exists(), "This script must be run from the root of the project"
     return str(project_root)
 
+
+def order_app_runtime_hook_last(analysis):
+    # The standard GStreamer hook hardcodes _internal/registry.bin. Apply our
+    # installation-specific registry and plugin directories after that hook.
+    hooks = [entry for entry in analysis.scripts if entry[0] == 'pyinstaller_runtime_hook_lada']
+    if hooks:
+        scripts = [entry for entry in analysis.scripts if entry[0] != 'pyinstaller_runtime_hook_lada']
+        analysis.scripts = scripts[:-1] + hooks + scripts[-1:]
+
 # Intel XPU
 def get_intel_xpu_runtime_libs(project_root):
     if BUILD_EXTRA != "intel":
@@ -134,6 +143,7 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
         noarchive=False,
         optimize=0,
     )
+    order_app_runtime_hook_last(gui_a)
     gui_pyz = PYZ(gui_a.pure)
     gui_exe = EXE(
         gui_pyz,
@@ -166,6 +176,7 @@ def get_cli_components(project_root_dir: str, common_datas: list, common_binarie
         noarchive=False,
         optimize=0,
     )
+    order_app_runtime_hook_last(cli_a)
     cli_pyz = PYZ(cli_a.pure)
     cli_exe = EXE(
         cli_pyz,

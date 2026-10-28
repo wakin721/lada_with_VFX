@@ -12,7 +12,7 @@ from lada import LOG_LEVEL
 from lada.gui.frame_restorer_provider import FrameRestorerProvider
 from lada.utils import video_utils, VideoMetadata, threading_utils
 from lada.restorationpipeline.frame_restorer import FrameRestorer
-from lada.utils.threading_utils import EOF_MARKER, STOP_MARKER, StopMarker, EofMarker
+from lada.utils.threading_utils import EOF_MARKER, STOP_MARKER, StopMarker, EofMarker, ErrorMarker
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=LOG_LEVEL)
@@ -47,6 +47,8 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
 
         self.video_metadata: VideoMetadata | None = None
         self.cpu_frame: torch.Tensor | None = None
+        self.vfx_processor = None
+        self.pending_display_buffer = None
 
         self.frame_restorer: FrameRestorer | None = None
         self.frame_restorer_provider: FrameRestorerProvider | None = None
@@ -75,6 +77,15 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
         self.connect('need-data', self._on_need_data)
         self.connect('enough-data', self._on_enough_data)
         self.connect('seek-data', self._on_seek_data)
+
+    @GObject.Signal(name='processing-error', arg_types=(str,))
+    def processing_error(self, message):
+        pass
+
+    def _report_error(self, error):
+        logger.error('Preview processing failed: %s', error, exc_info=True)
+        self.appsource_thread_should_be_running = False
+        self.emit('processing-error', str(error))
 
     def do_get_property(self, prop: GObject.GParamSpec):
         if prop.name == 'video-metadata':
@@ -111,23 +122,32 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
 
     def _set_video_metadata(self, video_metadata: VideoMetadata):
         self.video_metadata = video_metadata
-        self.frame_duration_ns = (1 / self.video_metadata.video_fps) * Gst.SECOND
+        options = self.frame_restorer_provider.options.vfx if self.frame_restorer_provider else None
+        scale = options.scale if options and options.enabled else 1
+        multiplier = options.multiplier if options and options.enabled else 1
+        fps = self.video_metadata.video_fps_exact * multiplier
+        self.frame_duration_ns = (1 / float(fps)) * Gst.SECOND
         caps = Gst.Caps.from_string(
-            f"video/x-raw,format=BGR,width={GstPaddingHelpers.get_padded_width(self.video_metadata.video_width)},height={self.video_metadata.video_height},framerate={self.video_metadata.video_fps_exact.numerator}/{self.video_metadata.video_fps_exact.denominator}")
+            f"video/x-raw,format=BGR,width={GstPaddingHelpers.get_padded_width(self.video_metadata.video_width * scale)},height={self.video_metadata.video_height * scale},framerate={fps.numerator}/{fps.denominator}")
         self.set_property('caps', caps)
-        self.set_property('duration', int((self.video_metadata.frames_count * self.frame_duration_ns)))
+        self.set_property('duration', round(self.video_metadata.duration * Gst.SECOND))
         logger.debug(f"appsource set video metadata: {video_metadata.video_file}")
 
     def _on_need_data(self, src, length):
         logger.debug("appsource need-data")
-        with self.appsrc_lock:
-            self._start_appsource_worker()
+        try:
+            with self.appsrc_lock:
+                self._start_appsource_worker()
+        except Exception as error:
+            self._report_error(error)
         return True
 
     def _on_enough_data(self, src):
         logger.debug("appsource enough-data")
-        with self.appsrc_lock:
-            self._request_stop_appsource_worker()
+        # This callback can run synchronously inside push-buffer. Taking the
+        # locks that stop()/join() hold would deadlock a seek or file change.
+        self.appsource_thread_stop_requested = True
+        self.appsource_thread_should_be_running = False
         return True
 
     def _on_seek_data(self, appsrc, offset_ns):
@@ -168,6 +188,12 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
             if not self.frame_restorer:
                 logger.debug(f"appsource worker: setting up frame restorer")
                 self.frame_restorer = self.frame_restorer_provider.get()
+                options = self.frame_restorer_provider.options.vfx
+                if options and options.enabled:
+                    from lada.utils.vfx_preview import VfxPreviewProcessor
+                    self.vfx_processor = VfxPreviewProcessor(options, self.video_metadata.video_width,
+                                                             self.video_metadata.video_height,
+                                                             self.frame_restorer_provider.options.device)
                 if seek_position is not None:
                     self.frame_restorer.start(start_ns=int(seek_position))
                     self.current_timestamp_ns = seek_position
@@ -208,6 +234,10 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
                 # garbage collection
                 threading_utils.empty_out_queue(frame_restorer_thread_queue)
                 self.frame_restorer = None
+            self.pending_display_buffer = None
+            if self.vfx_processor is not None:
+                self.vfx_processor.close()
+                self.vfx_processor = None
 
             logger.debug(f"appsource worker: stopped, took {time.time() - start}")
 
@@ -215,10 +245,15 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
         logger.debug("appsource worker: started")
         queue_marker = None
         while self.appsource_thread_should_be_running:
-            queue_marker = self._get_next_frame_and_push_buffer()
+            try:
+                queue_marker = self._get_next_frame_and_push_buffer()
+            except Exception as error:
+                self._report_error(error)
+                return
             if queue_marker is EOF_MARKER:
                 self.appsource_thread_should_be_running = False
                 self.appsource_thread_eof = True
+                self._flush_display_buffer()
                 self.emit("end-of-stream")
             elif queue_marker is STOP_MARKER:
                 self.appsource_thread_should_be_running = False
@@ -233,6 +268,8 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
 
     def _get_next_frame_and_push_buffer(self) -> StopMarker | EofMarker | None:
         result = self.frame_restorer.get_frame_restoration_queue().get()
+        if isinstance(result, ErrorMarker):
+            raise result
         if self.appsource_thread_stop_requested or result is STOP_MARKER or result is EOF_MARKER:
             logger.debug("appsource worker: frame_restoration_queue consumer unblocked")
             queue_marker = result
@@ -240,6 +277,14 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
         else:
             frame, frame_pts = result
 
+        if self.vfx_processor is not None:
+            for enhanced, timestamp in self.vfx_processor.frames(frame, frame_pts):
+                self._push_frame(enhanced, timestamp)
+        else:
+            self._push_frame(frame, frame_pts)
+        return None
+
+    def _push_frame(self, frame, frame_pts):
         frame_timestamp_ns = int((frame_pts * self.video_metadata.time_base) * Gst.SECOND)
         frame = GstPaddingHelpers.pad_frame(frame)
         device_type = frame.device.type
@@ -250,20 +295,42 @@ class FrameRestorerAppSrc(GstApp.AppSrc):
             self.cpu_frame.copy_(frame, non_blocking=use_async_copy)
             if use_async_copy:
                 if device_type == 'cuda':
-                    torch.cuda.synchronize()
+                    # Wait only for this stream's display transfer, not every
+                    # CUDA stream used by detection/restoration in other workers.
+                    event = torch.cuda.Event()
+                    event.record(torch.cuda.current_stream(frame.device))
+                    event.synchronize()
                 else:
                     torch.xpu.synchronize()
             data = self.cpu_frame.numpy().tobytes()
         else:
             data = frame.numpy().tobytes()
 
-        buf = Gst.Buffer.new_allocate(None, len(data), None)
-        buf.fill(0, data)
+        # bytes owns the data after the reusable pinned host buffer is released.
+        buf = Gst.Buffer.new_wrapped(data)
         buf.duration = round(self.frame_duration_ns)
         buf.pts = frame_timestamp_ns
         buf.offset = video_utils.offset_ns_to_frame_num(frame_timestamp_ns, self.video_metadata.video_fps_exact)
-        self.emit('push-buffer', buf)
+        if self.pending_display_buffer is not None:
+            previous = self.pending_display_buffer
+            previous.duration = max(1, buf.pts - previous.pts)
+            self._emit_display_buffer(previous)
+        self.pending_display_buffer = buf
         self.current_timestamp_ns = frame_timestamp_ns
+
+    def _flush_display_buffer(self):
+        if self.pending_display_buffer is None:
+            return
+        buf, self.pending_display_buffer = self.pending_display_buffer, None
+        start = (self.video_metadata.start_pts or 0) * self.video_metadata.time_base
+        end_ns = round((float(start) + self.video_metadata.duration) * Gst.SECOND)
+        buf.duration = max(1, end_ns - buf.pts)
+        self._emit_display_buffer(buf)
+
+    def _emit_display_buffer(self, buf):
+        result = self.emit('push-buffer', buf)
+        if result not in (Gst.FlowReturn.OK, Gst.FlowReturn.FLUSHING):
+            raise RuntimeError(f'Preview sink rejected a frame: {result}')
 
         return None
 
@@ -280,14 +347,14 @@ class GstPaddingHelpers:
         width = frame.shape[1]
         # TODO: see reasoning for this zero padding in TODO where we specify appsrc Caps
         if width % 4 != 0:
-            pad_w = width % 4
+            pad_w = (-width) % 4
             pad_tensor = torch.zeros((frame.shape[0], pad_w, frame.shape[2]), dtype=frame.dtype, device=frame.device)
             return torch.cat((frame, pad_tensor), dim=1)
         return frame
 
     @staticmethod
     def get_padded_width(width):
-        return width + width % 4
+        return width + (-width) % 4
 
 GObject.type_register(FrameRestorerAppSrc)
 __gstelementfactory__ = (FrameRestorerAppSrc.GST_PLUGIN_NAME,

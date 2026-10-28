@@ -48,16 +48,23 @@ def rebuild_exe(original, destination, pyz_path, main_source):
         if kind == 'z':
             entry = pyz_path.read_bytes()
             raw, flag = len(entry), 0
-        elif kind == 's' and name == 'main':
-            code = compile(main_source, 'main.py', 'exec', optimize=0)
+        elif kind == 's' and name in ('main', 'pyinstaller_runtime_hook_lada'):
+            source = main_source if name == 'main' else Path(__file__).with_name('pyinstaller_runtime_hook_lada.py').read_text(encoding='utf-8')
+            code = compile(source, name + '.py', 'exec', optimize=0)
             raw_code = marshal.dumps(code)
             entry, raw, flag = zlib.compress(raw_code), len(raw_code), 1
-            main_replaced = True
+            if name == 'main':
+                main_replaced = True
         toc.append((len(payload), len(entry), raw, flag, kind, name))
         payload.extend(entry)
         offset += size
     if not main_replaced:
         raise ValueError('Entry point was not found; executable was not rebuilt')
+    # PyInstaller's GStreamer hook otherwise overwrites the app-specific registry.
+    runtime_hook = next((entry for entry in toc if entry[-1] == 'pyinstaller_runtime_hook_lada'), None)
+    if runtime_hook:
+        toc.remove(runtime_hook)
+        toc.insert(next(i for i, entry in enumerate(toc) if entry[-1] == 'main'), runtime_hook)
     toc_bytes = CArchiveWriter._serialize_toc(toc)
     footer = struct.pack(COOKIE_FORMAT, COOKIE_MAGIC,
                          len(payload) + len(toc_bytes) + struct.calcsize(COOKIE_FORMAT),
@@ -76,27 +83,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--installed', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--refresh', action='store_true', help='Recompile an existing separate staging directory; retain its native runtime')
     parser.add_argument('--msgfmt', type=Path, help='Optional CPython Tools/i18n/msgfmt.py')
     parser.add_argument('--probe-source', type=Path, help='Build an additional GUI-runtime diagnostic executable')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     installed, output = args.installed.resolve(), args.output.resolve()
-    if output.exists():
+    if output.exists() and not args.refresh:
         parser.error('Output must be a new directory; the installed application is never overwritten here')
     if installed == output or installed in output.parents or output in installed.parents:
         parser.error('Output and installed directories must be separate')
     if not (installed / '_internal/python313.dll').is_file() or sys.version_info[:2] != (3, 13):
         parser.error('This runtime-reuse build requires an installed Python 3.13 Lada bundle and Python 3.13')
+    if args.refresh and not (output / '_internal/python313.dll').is_file():
+        parser.error('--refresh requires an existing staging runtime')
     vfx_distribution = importlib.metadata.distribution('nvidia-vfx')
     if vfx_distribution.version != '0.2.0.0':
         parser.error('This build targets nvidia-vfx==0.2.0.0')
 
-    output.mkdir(parents=True)
-    print('Copying the existing native runtime into a separate staging directory...', flush=True)
-    result = subprocess.run(['robocopy', str(installed / '_internal'), str(output / '_internal'),
-                             '/E', '/COPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS'])
-    if result.returncode >= 8:
-        raise RuntimeError(f'Runtime copy failed: robocopy exit {result.returncode}')
+    output.mkdir(parents=True, exist_ok=args.refresh)
+    if not args.refresh:
+        print('Copying the existing native runtime into a separate staging directory...', flush=True)
+        result = subprocess.run(['robocopy', str(installed / '_internal'), str(output / '_internal'),
+                                 '/E', '/COPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS'])
+        if result.returncode >= 8:
+            raise RuntimeError(f'Runtime copy failed: robocopy exit {result.returncode}')
 
     entries = {}
     code_dict = {}

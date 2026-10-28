@@ -81,6 +81,10 @@ class PipelineManager(GObject.Object):
     def opening_subtitles_file_failed(self):
         pass
 
+    @GObject.Signal(name='pipeline-error', arg_types=(str,))
+    def pipeline_error(self, message):
+        pass
+
     @GObject.Signal(name="eos")
     def eos(self):
         pass
@@ -114,6 +118,8 @@ class PipelineManager(GObject.Object):
                         logger.error(f"Failed to parse subtitles file {self.subtitle_filesrc.props.location}")
                     self.emit("opening-subtitles-failed")
                 logger.error(f"Error from {msg.src.get_path_string()}: {err}")
+                if msg.src.get_name() not in ('subtitle_subparse', 'subtitle_filesrc'):
+                    GLib.idle_add(lambda message=str(err): self.emit('pipeline-error', message))
             case Gst.MessageType.STATE_CHANGED:
                 if msg.src == self.pipeline:
                     old_state, new_state, pending_state = msg.parse_state_changed()
@@ -242,8 +248,10 @@ class PipelineManager(GObject.Object):
 
     def pipeline_add_video(self):
         appsrc = FrameRestorerAppSrc()
-        appsrc.set_property('video-metadata', self.video_metadata)
         appsrc.set_property('frame-restorer-provider', self.frame_restorer_provider)
+        appsrc.set_property('video-metadata', self.video_metadata)
+        appsrc.connect('processing-error', lambda _src, message:
+                       GLib.idle_add(lambda: self.emit('pipeline-error', message)))
         def on_appsrc_end_of_stream(src):
             logger.debug("appsource end-of-stream")
             GLib.idle_add(lambda: self.emit("waiting-for-data", False))

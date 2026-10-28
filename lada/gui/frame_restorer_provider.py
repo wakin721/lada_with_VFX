@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from lada import LOG_LEVEL, ModelFiles
 from lada.utils import VideoMetadata
+from lada.utils.vfx import VfxOptions
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=LOG_LEVEL)
@@ -27,6 +28,7 @@ class FrameRestorerOptions:
     passthrough: bool
     fp16_enabled: bool
     detect_face_mosaics: bool
+    vfx: VfxOptions | None = None
 
 class FrameRestorerOptionsBuilder:
     def __init__(self, initial: FrameRestorerOptions | None = None):
@@ -42,6 +44,7 @@ class FrameRestorerOptionsBuilder:
                 "passthrough": initial.passthrough,
                 "fp16_enabled": initial.fp16_enabled,
                 "detect_face_mosaics": initial.detect_face_mosaics,
+                "vfx": initial.vfx,
             }
 
     def mosaic_restoration_model_name(self, value: str) -> 'FrameRestorerOptionsBuilder':
@@ -77,12 +80,12 @@ class FrameRestorerOptionsBuilder:
         return self
 
     def detect_face_mosaics(self, value: bool) -> 'FrameRestorerOptionsBuilder':
-        self._properties["mosaic_detection"] = value
+        self._properties["detect_face_mosaics"] = value
         return self
 
     def build(self) -> FrameRestorerOptions:
         # Check that all properties have been set
-        if any(value is None for value in self._properties.values()):
+        if any(value is None for key, value in self._properties.items() if key != 'vfx'):
             raise ValueError("All properties must be set before building")
         return FrameRestorerOptions(**self._properties)
 
@@ -145,7 +148,8 @@ class FrameRestorerProvider:
                              self.models_cache["mosaic_detection_model"],
                              self.models_cache["mosaic_restoration_model"],
                              self.models_cache["mosaic_restoration_model_preferred_pad_mode"],
-                             self.options.mosaic_detection)
+                             self.options.mosaic_detection,
+                             output_device=self.options.device if self.options.vfx and self.options.vfx.enabled else None)
 
     def _clear_cache(self):
         if self.models_cache is None:

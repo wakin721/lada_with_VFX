@@ -80,6 +80,14 @@ class VfxTests(unittest.TestCase):
         vfx.release()
         self.assertEqual([pts for _, pts in vfx.writer.frames], [0, 1001, 2002, 3003])
 
+    def test_final_vfr_still_uses_actual_media_end_time(self):
+        vfx = self.make_writer()
+        vfx.end_pts = 2000
+        vfx.write([0], 0)
+        vfx.write([1], 40)
+        vfx.release()
+        self.assertEqual([pts for _, pts in vfx.writer.frames], [0, 40, 80, 2040])
+
     def test_reorder_pts_keeps_decoded_images_in_order(self):
         vfx = self.make_writer()
         for image, pts in zip([0, 1, 2], [80, 0, 40]):

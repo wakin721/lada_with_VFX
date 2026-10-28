@@ -449,7 +449,8 @@ class ExportView(Gtk.Widget):
                                                           False,
                                                           False,
                                                           self._config.fp16_enabled,
-                                                          self._config.detect_face_mosaics)
+                                                          self._config.detect_face_mosaics,
+                                                          vfx=VfxOptions.from_config(self._config))
             video_metadata = frame_restorer_options.video_metadata
             frame_restorer_provider = FRAME_RESTORER_PROVIDER
             frame_restorer_provider.init(frame_restorer_options)
@@ -469,7 +470,9 @@ class ExportView(Gtk.Widget):
                         video_metadata.video_height, video_metadata.video_fps_exact,
                         encoder=preset.encoder_name, encoder_options=preset.encoder_options,
                         time_base=video_metadata.time_base, mp4_fast_start=self._config.mp4_fast_start,
-                        vfx=VfxOptions.from_config(self._config), device=self._config.device)
+                        vfx=VfxOptions.from_config(self._config), device=self._config.device,
+                        duration=video_metadata.duration, start_pts=video_metadata.start_pts,
+                        variable_frame_rate=video_metadata.variable_frame_rate)
                     self.progress_calculator = export_utils.ProgressCalculator(video_metadata)
 
                 frame_restorer.start(start_ns=start_ns)

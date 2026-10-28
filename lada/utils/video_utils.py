@@ -24,6 +24,7 @@ import torch
 import numpy as np
 
 from lada.utils import Image, Mask, VideoMetadata, os_utils
+from lada.utils.video_timing import select_frame_rate, has_variable_frame_rate
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +153,9 @@ def get_video_meta_data(path: str) -> VideoMetadata:
     # Can be 0/0 for some files for ffprobe isn't able to determine the number of frames nb_frames
     average_fps = value[0]/value[1] if len(value) == 2 and value[1] != 0 else value[0]
 
-    value = [int(num) for num in json_video_stream['r_frame_rate'].split("/")]
-    fps = value[0]/value[1] if len(value) == 2 else value[0]
-    fps_exact = Fraction(value[0], value[1])
+    duration = float(json_video_stream.get('duration', json_video_format['duration']))
+    fps_exact = select_frame_rate(json_video_stream, duration)
+    fps = float(fps_exact)
 
     value = [int(num) for num in json_video_stream['time_base'].split("/")]
     time_base = Fraction(value[0], value[1])
@@ -181,7 +182,8 @@ def get_video_meta_data(path: str) -> VideoMetadata:
         frames_count=frame_count,
         duration=float(json_video_stream.get('duration', json_video_format['duration'])),
         time_base=time_base,
-        start_pts=start_pts
+        start_pts=start_pts,
+        variable_frame_rate=has_variable_frame_rate(json_video_stream, fps_exact)
     )
     return metadata
 
@@ -406,7 +408,7 @@ class VideoWriter:
         }
         return parsed_encoder_options
 
-    def __init__(self, output_path, width, height, fps, encoder: str, encoder_options: str, time_base=None, mp4_fast_start=False):
+    def __init__(self, output_path, width, height, fps, encoder: str, encoder_options: str, time_base=None, mp4_fast_start=False, variable_frame_rate=False):
         container_options = {}
         if mp4_fast_start and (output_path.lower().endswith(".mp4") or output_path.lower().endswith(".mov")):
             container_options["movflags"] = "+frag_keyframe+empty_moov+faststart"
@@ -441,6 +443,10 @@ class VideoWriter:
         video_stream_out.codec_context.time_base = time_base
 
         stream_options = self._parse_encoder_options(encoder_options)
+        if variable_frame_rate and encoder in ('hevc_nvenc', 'h264_nvenc', 'libx264', 'libx265'):
+            # Sparse VFR timestamps and B-frame reordering can yield invalid
+            # decode-time spacing and truncate the final displayed duration.
+            stream_options['bf'] = '0'
         # hevc_videotoolbox needs tag 'hvc1' for compatibility (e.g. Safari in MP4/MOV); preset -tag:v is often ignored by PyAV/ffmpeg
         if encoder == 'hevc_videotoolbox':
             stream_options['tag'] = 'hvc1'
@@ -453,6 +459,21 @@ class VideoWriter:
         self.pts_heap = []
         self.frame_queue = deque()
         self.pts_set = set()
+        self.source_end_time = None
+        self.final_frame_time = None
+        self.input_time_base = time_base
+
+    def set_end_time(self, end_time):
+        self.source_end_time = Fraction(end_time)
+
+    def _mux_packets(self, packets):
+        for packet in packets:
+            if self.final_frame_time is not None and packet.pts is not None and packet.time_base:
+                timestamp = packet.pts * packet.time_base
+                tolerance = max(packet.time_base, self.input_time_base or packet.time_base)
+                if abs(timestamp - self.final_frame_time) <= tolerance and self.source_end_time > timestamp:
+                    packet.duration = max(1, round((self.source_end_time - timestamp) / packet.time_base))
+            self.output_container.mux(packet)
 
     def __enter__(self):
         return self
@@ -469,9 +490,14 @@ class VideoWriter:
 
             out_frame = av.VideoFrame.from_ndarray(frame_to_encode, format='rgb24')
             out_frame.pts = pts_to_assign
+            if self.input_time_base is not None:
+                # Hardware encoders may renegotiate codec time_base when opened.
+                # Explicit source units let PyAV rescale rather than interpreting
+                # source PTS in the newly negotiated encoder clock.
+                out_frame.time_base = self.input_time_base
             out_packet = self.video_stream.encode(out_frame)
             if out_packet:
-                self.output_container.mux(out_packet)
+                self._mux_packets(out_packet)
 
 
     def write(self, frame, frame_pts=None, bgr2rgb=False):
@@ -496,13 +522,15 @@ class VideoWriter:
         self._process_buffer()
 
     def release(self):
+        if self.source_end_time is not None and self.pts_heap and self.input_time_base:
+            self.final_frame_time = max(self.pts_heap) * self.input_time_base
         while len(self.frame_queue) > 0:
             self._process_buffer(flush_all=True)
         # Flush the encoder
         try:
             out_packet = self.video_stream.encode(None)
             if out_packet:
-                self.output_container.mux(out_packet)
+                self._mux_packets(out_packet)
         except:
             # TODO: For half of my test files flushing QSV encoders fail here with "Application provided invalid, non monotonically increasing dts to muxer in stream"
             # This doesn't happen with libx264 or NVENC encoders. The restored file plays fine so let's ignore it for now.
