@@ -54,6 +54,12 @@ class ConfigSidebar(Gtk.Box):
     expander_row_restoration_models: Adw.ExpanderRow = Gtk.Template.Child()
     spin_row_subtitles_font_size: Adw.SpinRow = Gtk.Template.Child()
 
+    combo_row_vfx_scale = Gtk.Template.Child()
+    combo_row_vfx_denoise = Gtk.Template.Child()
+    combo_row_vfx_multiplier = Gtk.Template.Child()
+    combo_row_vfx_quality = Gtk.Template.Child()
+    combo_row_vfx_frame_quality = Gtk.Template.Child()
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._config: Config | None = None
@@ -154,6 +160,23 @@ class ConfigSidebar(Gtk.Box):
         self.toggle_button_initial_view_preview.set_active(config.initial_view == "watch")
         self.toggle_button_initial_view_export.set_active(config.initial_view == "export")
 
+        self._vfx_values = {}
+        self._vfx_values['vfx_scale'] = (1, 2, 3, 4)
+        self.combo_row_vfx_scale.set_model(Gtk.StringList.new([_(label) for label in ('Off', '2x', '3x', '4x')]))
+        self.combo_row_vfx_scale.set_selected(self._vfx_values['vfx_scale'].index(config.vfx_scale))
+        self._vfx_values['vfx_denoise'] = ('off', 'LOW', 'MEDIUM', 'HIGH', 'ULTRA')
+        self.combo_row_vfx_denoise.set_model(Gtk.StringList.new([_(label) for label in ('Off', 'Low', 'Medium', 'High', 'Ultra')]))
+        self.combo_row_vfx_denoise.set_selected(self._vfx_values['vfx_denoise'].index(config.vfx_denoise))
+        self._vfx_values['vfx_multiplier'] = (1, 2, 3, 4, 5, 6, 7, 8)
+        self.combo_row_vfx_multiplier.set_model(Gtk.StringList.new([_(label) for label in ('Off', '2x', '3x', '4x', '5x', '6x', '7x', '8x')]))
+        self.combo_row_vfx_multiplier.set_selected(self._vfx_values['vfx_multiplier'].index(config.vfx_multiplier))
+        self._vfx_values['vfx_quality'] = ('LOW', 'MEDIUM', 'HIGH', 'ULTRA')
+        self.combo_row_vfx_quality.set_model(Gtk.StringList.new([_(label) for label in ('Low', 'Medium', 'High', 'Ultra')]))
+        self.combo_row_vfx_quality.set_selected(self._vfx_values['vfx_quality'].index(config.vfx_quality))
+        self._vfx_values['vfx_frame_quality'] = ('LOW', 'MEDIUM', 'HIGH')
+        self.combo_row_vfx_frame_quality.set_model(Gtk.StringList.new([_(label) for label in ('Low', 'Medium', 'High')]))
+        self.combo_row_vfx_frame_quality.set_selected(self._vfx_values['vfx_frame_quality'].index(config.vfx_frame_quality))
+
         # init post-export action
         self.check_button_post_export_shutdown.set_active(config.post_export_action == PostExportAction.SHUTDOWN)
         self.check_button_post_export_custom_command.set_active(config.post_export_action == PostExportAction.CUSTOM_COMMAND)
@@ -196,6 +219,31 @@ class ConfigSidebar(Gtk.Box):
     @show_export_section.setter
     def show_export_section(self, value):
         self._show_export_section = value
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def combo_row_vfx_scale_selected_callback(self, row, _param):
+        setattr(self._config, 'vfx_scale', self._vfx_values['vfx_scale'][row.get_selected()])
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def combo_row_vfx_denoise_selected_callback(self, row, _param):
+        setattr(self._config, 'vfx_denoise', self._vfx_values['vfx_denoise'][row.get_selected()])
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def combo_row_vfx_multiplier_selected_callback(self, row, _param):
+        setattr(self._config, 'vfx_multiplier', self._vfx_values['vfx_multiplier'][row.get_selected()])
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def combo_row_vfx_quality_selected_callback(self, row, _param):
+        setattr(self._config, 'vfx_quality', self._vfx_values['vfx_quality'][row.get_selected()])
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def combo_row_vfx_frame_quality_selected_callback(self, row, _param):
+        setattr(self._config, 'vfx_frame_quality', self._vfx_values['vfx_frame_quality'][row.get_selected()])
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized

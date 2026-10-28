@@ -8,6 +8,7 @@ param (
     [switch]$skipArchive = $false,
     [switch]$cliOnly = $false,
     [switch]$cleanGvsbuild = $false,
+    [switch]$withVfx = $false,
     [string]$extra = "nvidia"
 )
 
@@ -131,6 +132,10 @@ function Install-PythonDependencies {
     uv pip install polars-lts-cpu
 
     uv pip install --no-deps '.'
+    if ($withVfx) {
+        if ($extra -ne 'nvidia') { throw 'NVIDIA VFX requires -extra nvidia' }
+        uv pip install --index-strategy unsafe-best-match -r packaging/windows/requirements-vfx.txt
+    }
     if (-not $cliOnly) {
         uv pip install --force-reinstall (Resolve-Path ".\build_gtk_release\gtk\x64\release\python\pygobject*.whl").Path
         uv pip install --force-reinstall (Resolve-Path ".\build_gtk_release\gtk\x64\release\python\pycairo*.whl").Path
@@ -155,14 +160,17 @@ function Create-EXE {
 
     .\venv_release_win\Scripts\Activate.ps1
 
-    $release_dir = (Resolve-Path ".\build_gtk_release\gtk\x64\release").Path
-    $env:Path = $release_dir + "\bin;" + $env:Path
-    $env:LIB = $release_dir + "\lib;" + $env:LIB
-    $env:INCLUDE = $release_dir + "\include;" + $release_dir + "\include\cairo;" + $release_dir + "\include\glib-2.0;" + $release_dir + "\include\gobject-introspection-1.0;" + $release_dir + "\lib\glib-2.0\include;" + $env:INCLUDE
+    if (-not $cliOnly) {
+        $release_dir = (Resolve-Path ".\build_gtk_release\gtk\x64\release").Path
+        $env:Path = $release_dir + "\bin;" + $env:Path
+        $env:LIB = $release_dir + "\lib;" + $env:LIB
+        $env:INCLUDE = $release_dir + "\include;" + $release_dir + "\include\cairo;" + $release_dir + "\include\glib-2.0;" + $release_dir + "\include\gobject-introspection-1.0;" + $release_dir + "\lib\glib-2.0\include;" + $env:INCLUDE
+    }
 
     $specArgs = @()
     if ($cliOnly) { $specArgs += '--cli-only' }
     $specArgs += "--extra=$extra"
+    if ($withVfx) { $specArgs += '--with-vfx' }
 
     uv run --no-project pyinstaller --noconfirm ./packaging/windows/lada.spec -- $specArgs
 
@@ -227,6 +235,9 @@ function Check-Extra {
 # ---------------------
 
 $ErrorActionPreference = "Stop"
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $true
+}
 
 Check-ProjectRoot
 Check-Extra $extra

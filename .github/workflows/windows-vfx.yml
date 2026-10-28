@@ -1,0 +1,93 @@
+name: Windows NVIDIA VFX
+
+on:
+  push:
+    branches: [main, 'vfx/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_gui:
+        description: Build the GTK GUI as well as the CLI
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-vfx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s tests -v
+      - run: python -m compileall -q lada
+
+  windows:
+    needs: test
+    runs-on: windows-2022
+    timeout-minutes: 350
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: p
+    env:
+      UV_NO_PROGRESS: '1'
+      UV_HTTP_TIMEOUT: '300'
+      PYTHONUTF8: '1'
+      BUILD_GUI: ${{ github.event_name != 'workflow_dispatch' || inputs.build_gui }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: p
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.10.0'
+      - name: Install FFmpeg
+        run: choco install ffmpeg vcredist2013 --yes --no-progress
+      - uses: msys2/setup-msys2@v2
+        if: env.BUILD_GUI == 'true'
+        with:
+          location: C:\msys64
+          update: true
+      - name: Cache GTK build
+        if: env.BUILD_GUI == 'true'
+        uses: actions/cache@v4
+        with:
+          path: p/build_gtk_release
+          key: gtk-win2022-py31312-gvs202610-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}
+      - name: Build portable NVIDIA VFX package
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:Path = "C:\msys64\usr\bin;" + $env:Path
+          $cliOnly = $env:BUILD_GUI -ne 'true'
+          ./packaging/windows/package_executable.ps1 -extra nvidia -withVfx -skipWinget -skipTranslations:$cliOnly -cliOnly:$cliOnly
+      - name: Smoke test packaged CLI and VFX resources
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          ./dist/lada/lada-cli.exe --help
+          if (!(Test-Path ./dist/lada/_internal/nvvfx)) { throw 'Missing nvvfx package' }
+          $native = Get-ChildItem ./dist/lada/_internal/nvvfx -Recurse -File | Where-Object { $_.Extension -in '.dll', '.pyd' }
+          if (!$native) { throw 'Missing NVIDIA VFX native libraries' }
+          uv pip check --python ./venv_release_win/Scripts/python.exe
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lada-windows-nvidia-vfx-${{ github.sha }}
+          path: |
+            p/dist/*.7z*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

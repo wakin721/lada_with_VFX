@@ -50,6 +50,12 @@ class Config(GObject.Object):
         'temp_directory': tempfile.gettempdir(),
         'detect_face_mosaics': False,
         'subtitles_font_size': 16,
+        'vfx_scale': 1,
+        'vfx_denoise': 'off',
+        'vfx_multiplier': 1,
+        'vfx_quality': 'HIGH',
+        'vfx_frame_quality': 'MEDIUM',
+
     }
 
     def __init__(self, style_manager: Adw.StyleManager):
@@ -75,6 +81,12 @@ class Config(GObject.Object):
         self._fp16_enabled = self._defaults['fp16_enabled']
         self._detect_face_mosaics = self._defaults['detect_face_mosaics']
         self._subtitles_font_size = self._defaults['subtitles_font_size']
+        self._vfx_scale = self._defaults['vfx_scale']
+        self._vfx_denoise = self._defaults['vfx_denoise']
+        self._vfx_multiplier = self._defaults['vfx_multiplier']
+        self._vfx_quality = self._defaults['vfx_quality']
+        self._vfx_frame_quality = self._defaults['vfx_frame_quality']
+
 
         self.save_lock = threading.Lock()
         self._style_manager = style_manager
@@ -89,6 +101,56 @@ class Config(GObject.Object):
             return
         self._seek_preview_enabled = value
         self.save()
+
+    @GObject.Property(type=int, default=1)
+    def vfx_scale(self):
+        return self._vfx_scale
+
+    @vfx_scale.setter
+    def vfx_scale(self, value):
+        if value != self._vfx_scale:
+            self._vfx_scale = value
+            self.save()
+
+    @GObject.Property(type=str, default='off')
+    def vfx_denoise(self):
+        return self._vfx_denoise
+
+    @vfx_denoise.setter
+    def vfx_denoise(self, value):
+        if value != self._vfx_denoise:
+            self._vfx_denoise = value
+            self.save()
+
+    @GObject.Property(type=int, default=1)
+    def vfx_multiplier(self):
+        return self._vfx_multiplier
+
+    @vfx_multiplier.setter
+    def vfx_multiplier(self, value):
+        if value != self._vfx_multiplier:
+            self._vfx_multiplier = value
+            self.save()
+
+    @GObject.Property(type=str, default='HIGH')
+    def vfx_quality(self):
+        return self._vfx_quality
+
+    @vfx_quality.setter
+    def vfx_quality(self, value):
+        if value != self._vfx_quality:
+            self._vfx_quality = value
+            self.save()
+
+    @GObject.Property(type=str, default='MEDIUM')
+    def vfx_frame_quality(self):
+        return self._vfx_frame_quality
+
+    @vfx_frame_quality.setter
+    def vfx_frame_quality(self, value):
+        if value != self._vfx_frame_quality:
+            self._vfx_frame_quality = value
+            self.save()
 
     # Removed seek_preview_size property - now auto-scaled
 
@@ -366,6 +428,12 @@ class Config(GObject.Object):
         self.validate_and_set_device(self._defaults['device'])
         self.detect_face_mosaics = self._defaults['detect_face_mosaics']
         self.subtitles_font_size = self._defaults['subtitles_font_size']
+        self.vfx_scale = self._defaults['vfx_scale']
+        self.vfx_denoise = self._defaults['vfx_denoise']
+        self.vfx_multiplier = self._defaults['vfx_multiplier']
+        self.vfx_quality = self._defaults['vfx_quality']
+        self.vfx_frame_quality = self._defaults['vfx_frame_quality']
+
         self.save()
 
     def _update_style(self, color_scheme: ColorScheme):
@@ -398,6 +466,12 @@ class Config(GObject.Object):
             'temp_directory': self._temp_directory,
             'detect_face_mosaics': self._detect_face_mosaics,
             'subtitles_font_size': self._subtitles_font_size,
+            'vfx_scale': self._vfx_scale,
+            'vfx_denoise': self._vfx_denoise,
+            'vfx_multiplier': self._vfx_multiplier,
+            'vfx_quality': self._vfx_quality,
+            'vfx_frame_quality': self._vfx_frame_quality,
+
         }
 
     def _encoding_preset_as_dict(self, encoding_preset: video_utils.EncodingPreset):
@@ -414,7 +488,15 @@ class Config(GObject.Object):
     def _from_dict(self, dict):
         for key in self._defaults:
             if key in dict and dict[key] is not None:
-                if key == 'device':
+                if key.startswith('vfx_'):
+                    from dataclasses import replace
+                    from lada.utils.vfx import VfxOptions
+                    try:
+                        replace(VfxOptions(), **{key[4:]: dict[key]})
+                        setattr(self, f"_{key}", dict[key])
+                    except (TypeError, ValueError):
+                        logger.warning("Ignoring invalid VFX setting %s=%r", key, dict[key])
+                elif key == 'device':
                     self.validate_and_set_device(dict[key])
                 elif key == 'mosaic_restoration_model':
                     self.validate_and_set_restoration_model(dict[key])

@@ -38,6 +38,7 @@ except ModuleNotFoundError:
 from lada import VERSION, ModelFiles
 from lada.cli import utils
 from lada.utils import audio_utils, video_utils
+from lada.utils.vfx import VfxOptions, create_video_writer
 from lada.utils.os_utils import gpu_has_fp16_acceleration, get_default_torch_device
 from lada.restorationpipeline.frame_restorer import FrameRestorer
 from lada.restorationpipeline import load_models
@@ -107,10 +108,18 @@ def setup_argparser() -> argparse.ArgumentParser:
     group_detection.add_argument('--list-mosaic-detection-models', action='store_true', help=_("List available detection models found in model weights directory and exit (default location is './model_weights' if not overwritten by environment variable LADA_MODEL_WEIGHTS_DIR)"))
     group_detection.add_argument('--detect-face-mosaics', action=argparse.BooleanOptionalAction, default=False, help=_("Detect and ignore areas of pixelated faces. Can prevent restoration artifacts but may worsen detection of NSFW mosaics. Available for models v3 and newer. (default: %(default)s)"))
 
+    vfx = parser.add_argument_group('NVIDIA VFX (export only)')
+    vfx.add_argument('--vfx-scale', type=int, choices=[1, 2, 3, 4], default=1,
+                     help='Spatial scale factor; 1 disables super resolution')
+    vfx.add_argument('--vfx-denoise', choices=['off', 'LOW', 'MEDIUM', 'HIGH', 'ULTRA'], default='off')
+    vfx.add_argument('--vfx-frame-multiplier', type=int, choices=range(1, 9), default=1,
+                     help='Multiply source frame rate without changing playback speed; 1 disables interpolation')
+    vfx.add_argument('--vfx-quality', choices=['LOW', 'MEDIUM', 'HIGH', 'ULTRA'], default='HIGH')
+    vfx.add_argument('--vfx-frame-quality', choices=['LOW', 'MEDIUM', 'HIGH'], default='MEDIUM')
     return parser
 
 def process_video_file(input_path: str, output_path: str, temp_dir_path: str, device: torch.device, mosaic_restoration_model, mosaic_detection_model,
-                       mosaic_restoration_model_name, preferred_pad_mode, max_clip_length, encoder: str, encoder_options: str, mp4_fast_start):
+                       mosaic_restoration_model_name, preferred_pad_mode, max_clip_length, encoder: str, encoder_options: str, mp4_fast_start, vfx: VfxOptions | None = None):
     video_metadata = get_video_meta_data(input_path)
 
     frame_restorer = FrameRestorer(device, input_path, max_clip_length, mosaic_restoration_model_name,
@@ -122,9 +131,10 @@ def process_video_file(input_path: str, output_path: str, temp_dir_path: str, de
     try:
         frame_restorer.start()
         frame_restorer_progressbar.init()
-        with VideoWriter(video_tmp_file_output_path, video_metadata.video_width, video_metadata.video_height,
+        with create_video_writer(video_tmp_file_output_path, video_metadata.video_width, video_metadata.video_height,
                          video_metadata.video_fps_exact, encoder=encoder, encoder_options=encoder_options,
-                         time_base=video_metadata.time_base, mp4_fast_start=mp4_fast_start) as video_writer:
+                         time_base=video_metadata.time_base, mp4_fast_start=mp4_fast_start,
+                         vfx=vfx, device=device) as video_writer:
             for elem in frame_restorer:
                 if elem is STOP_MARKER or isinstance(elem, ErrorMarker):
                     success = False
@@ -255,7 +265,9 @@ def main():
         try:
             process_video_file(input_path=input_path, output_path=output_path, temp_dir_path=args.temporary_directory, device=device, mosaic_restoration_model=mosaic_restoration_model, mosaic_detection_model=mosaic_detection_model,
                                mosaic_restoration_model_name=mosaic_restoration_model_name, preferred_pad_mode=preferred_pad_mode, max_clip_length=args.max_clip_length,
-                               encoder=encoder, encoder_options=encoder_options, mp4_fast_start=args.mp4_fast_start)
+                               encoder=encoder, encoder_options=encoder_options, mp4_fast_start=args.mp4_fast_start,
+                               vfx=VfxOptions(args.vfx_scale, args.vfx_denoise, args.vfx_frame_multiplier,
+                                              args.vfx_quality, args.vfx_frame_quality))
         except KeyboardInterrupt:
             print(_("Received Ctrl-C, stopping restoration."))
             break

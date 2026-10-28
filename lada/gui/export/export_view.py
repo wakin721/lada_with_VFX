@@ -23,6 +23,7 @@ from lada.gui.export.shutdown_manager import ShutdownManager, ShutdownError
 from lada.gui.export.spinner_button import SpinnerButton
 from lada.gui.frame_restorer_provider import FrameRestorerOptions, FRAME_RESTORER_PROVIDER
 from lada.utils import audio_utils, video_utils
+from lada.utils.vfx import VfxOptions, create_video_writer, release_video_writer
 from lada.utils.threading_utils import STOP_MARKER, ErrorMarker
 
 here = pathlib.Path(__file__).parent.resolve()
@@ -210,6 +211,8 @@ class ExportView(Gtk.Widget):
         else:
             # paused, so already stopped
             logger.debug("Cancelled paused export")
+            release_video_writer(self.video_writer, finalize=False)
+            self.video_writer = None
             self.resume_info = None
             self.emit('video-export-stopped')
 
@@ -420,6 +423,8 @@ class ExportView(Gtk.Widget):
         def is_error_or_stop_marker(elem) -> bool:
             return elem is STOP_MARKER or isinstance(elem, ErrorMarker)
 
+        export_errors = []
+
         def handle_queue_marker(queue_marker):
             assert is_error_or_stop_marker(queue_marker)
             if queue_marker is STOP_MARKER:
@@ -427,11 +432,11 @@ class ExportView(Gtk.Widget):
             else:
                 err_msg = queue_marker.stack_trace
             logger.error(f"Error on export: {err_msg}")
-            GLib.idle_add(lambda: self.emit('video-export-failed', err_msg))
+            export_errors.append(err_msg)
 
         def handle_exception(e: Exception):
             err_msg = "".join(traceback.format_exception_only(e))
-            GLib.idle_add(lambda: self.emit('video-export-failed', err_msg))
+            export_errors.append(err_msg)
 
         def run_export():
             success = True
@@ -457,12 +462,14 @@ class ExportView(Gtk.Widget):
                 else:
                     start_ns = 0
                     start_frame_num = 0
+                    self.video_writer = None
                     preset = utils.get_selected_preset(self.config)
-                    self.video_writer = video_utils.VideoWriter(
+                    self.video_writer = create_video_writer(
                         video_tmp_file_output_path, video_metadata.video_width,
                         video_metadata.video_height, video_metadata.video_fps_exact,
                         encoder=preset.encoder_name, encoder_options=preset.encoder_options,
-                        time_base=video_metadata.time_base, mp4_fast_start=self._config.mp4_fast_start)
+                        time_base=video_metadata.time_base, mp4_fast_start=self._config.mp4_fast_start,
+                        vfx=VfxOptions.from_config(self._config), device=self._config.device)
                     self.progress_calculator = export_utils.ProgressCalculator(video_metadata)
 
                 frame_restorer.start(start_ns=start_ns)
@@ -507,13 +514,21 @@ class ExportView(Gtk.Widget):
             finally:
                 if not self.pause_requested:
                     try:
-                        self.video_writer.release()
+                        release_video_writer(self.video_writer, finalize=success)
                     except Exception as e:
                         success = False
                         handle_exception(e)
                 frame_restorer.stop()
 
-            if self.pause_requested:
+            # Report failure after resources are closed, so the next queued file
+            # cannot replace self.video_writer while this worker is cleaning up.
+            if export_errors:
+                self.pause_requested = False
+                if os.path.exists(video_tmp_file_output_path):
+                    os.remove(video_tmp_file_output_path)
+                error_message = '\n'.join(export_errors)
+                GLib.idle_add(lambda message=error_message: self.emit('video-export-failed', message))
+            elif self.pause_requested:
                 GLib.idle_add(lambda: self.emit('video-export-paused'))
             else:
                 if success:

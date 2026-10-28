@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 
 import argparse
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_all, copy_metadata
 from os.path import join as ospj
 import shutil
 import os
@@ -118,9 +118,9 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
     gui_a = Analysis(
         [ospj(project_root_dir, 'lada/gui/main.py')],
         pathex=[],
-        binaries=gui_binaries,
-        datas=gui_datas,
-        hiddenimports=[],
+        binaries=gui_binaries + vfx_binaries,
+        datas=gui_datas + vfx_datas,
+        hiddenimports=vfx_hiddenimports,
         hookspath=[],
         hooksconfig={
             "gi": {
@@ -156,9 +156,9 @@ def get_cli_components(project_root_dir: str, common_datas: list, common_binarie
     cli_a = Analysis(
         [ospj(project_root_dir, 'lada/cli/main.py')],
         pathex=[],
-        binaries=common_binaries,
-        datas=common_datas,
-        hiddenimports=[],
+        binaries=common_binaries + vfx_binaries,
+        datas=common_datas + vfx_datas,
+        hiddenimports=vfx_hiddenimports,
         hookspath=[],
         hooksconfig={},
         runtime_hooks=common_runtime_hooks,
@@ -187,6 +187,7 @@ def get_cli_components(project_root_dir: str, common_datas: list, common_binarie
 def parser_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cli-only", action="store_true", help="Only build the CLI, skipping the GUI.")
+    parser.add_argument("--with-vfx", action="store_true", help="Bundle NVIDIA VFX libraries and models.")
     
     parser.add_argument(
         "--extra", 
@@ -198,6 +199,15 @@ def parser_args():
 
 args = parser_args()
 BUILD_EXTRA = args.extra.lower()
+vfx_datas, vfx_binaries, vfx_hiddenimports = ([], [], [])
+if args.with_vfx:
+    if BUILD_EXTRA != 'nvidia':
+        raise ValueError('--with-vfx requires --extra=nvidia')
+    # The wheel contains native DLLs, model resources and dynamic Python imports.
+    vfx_datas, vfx_binaries, vfx_hiddenimports = collect_all('nvvfx')
+    vfx_datas += copy_metadata('nvidia-vfx')
+    if not vfx_binaries:
+        raise RuntimeError('NVIDIA VFX native libraries were not collected')
 
 project_root = get_project_root()
 

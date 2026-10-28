@@ -926,3 +926,51 @@ msgstr "SVT-AV1 / CRF18，AV1 软件编码，视觉无损，速度慢，体积�
 
 #~ msgid "Processing frames"
 #~ msgstr "正在处理帧"
+
+#. NVIDIA VFX export settings
+msgid "NVIDIA VFX"
+msgstr "NVIDIA VFX"
+
+#. NVIDIA VFX export settings
+msgid "Export only: denoise, frame generation and super resolution"
+msgstr "仅导出：降噪、补帧和超分辨率"
+
+#. NVIDIA VFX export settings
+msgid "Super resolution"
+msgstr "超分辨率"
+
+#. NVIDIA VFX export settings
+msgid "Denoise"
+msgstr "降噪"
+
+#. NVIDIA VFX export settings
+msgid "Frame rate multiplier"
+msgstr "帧率倍数"
+
+#. NVIDIA VFX export settings
+msgid "Super resolution quality"
+msgstr "超分辨率质量"
+
+#. NVIDIA VFX export settings
+msgid "Frame generation quality"
+msgstr "补帧质量"
+
+#. NVIDIA VFX export settings
+msgid "Off"
+msgstr "关闭"
+
+#. NVIDIA VFX export settings
+msgid "Low"
+msgstr "低"
+
+#. NVIDIA VFX export settings
+msgid "Medium"
+msgstr "中"
+
+#. NVIDIA VFX export settings
+msgid "High"
+msgstr "高"
+
+#. NVIDIA VFX export settings
+msgid "Ultra"
+msgstr "极高"

@@ -137,6 +137,42 @@ SPDX-License-Identifier: AGPL-3.0
                                 <property name="title" translatable="true">Export</property>
                                 <property name="visible" bind-source="ConfigSidebar" bind-property="show-export-section"/>
                                 <child>
+                                    <object class="AdwExpanderRow">
+                                        <property name="title" translatable="true">NVIDIA VFX</property>
+                                        <property name="subtitle" translatable="true">Export only: denoise, frame generation and super resolution</property>
+                                        <child>
+                                            <object class="AdwComboRow" id="combo_row_vfx_scale">
+                                                <property name="title" translatable="true">Super resolution</property>
+                                                <signal name="notify::selected" handler="combo_row_vfx_scale_selected_callback"/>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="AdwComboRow" id="combo_row_vfx_denoise">
+                                                <property name="title" translatable="true">Denoise</property>
+                                                <signal name="notify::selected" handler="combo_row_vfx_denoise_selected_callback"/>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="AdwComboRow" id="combo_row_vfx_multiplier">
+                                                <property name="title" translatable="true">Frame rate multiplier</property>
+                                                <signal name="notify::selected" handler="combo_row_vfx_multiplier_selected_callback"/>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="AdwComboRow" id="combo_row_vfx_quality">
+                                                <property name="title" translatable="true">Super resolution quality</property>
+                                                <signal name="notify::selected" handler="combo_row_vfx_quality_selected_callback"/>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="AdwComboRow" id="combo_row_vfx_frame_quality">
+                                                <property name="title" translatable="true">Frame generation quality</property>
+                                                <signal name="notify::selected" handler="combo_row_vfx_frame_quality_selected_callback"/>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </child>
+                                <child>
                                     <object class="AdwExpanderRow" id="expander_row_encoding_presets">
                                         <property name="title" translatable="true">Encoding Preset</property>
                                         <property name="show-enable-switch">false</property>

@@ -927,3 +927,51 @@ msgstr "AV1, SVT-AV1 軟體編碼器,畫質無明顯差異,檔案更小"
 
 #~ msgid "Processing frames"
 #~ msgstr "幀處理"
+
+#. NVIDIA VFX export settings
+msgid "NVIDIA VFX"
+msgstr "NVIDIA VFX"
+
+#. NVIDIA VFX export settings
+msgid "Export only: denoise, frame generation and super resolution"
+msgstr "僅匯出：降噪、補幀和超解析度"
+
+#. NVIDIA VFX export settings
+msgid "Super resolution"
+msgstr "超解析度"
+
+#. NVIDIA VFX export settings
+msgid "Denoise"
+msgstr "降噪"
+
+#. NVIDIA VFX export settings
+msgid "Frame rate multiplier"
+msgstr "影格率倍數"
+
+#. NVIDIA VFX export settings
+msgid "Super resolution quality"
+msgstr "超解析度品質"
+
+#. NVIDIA VFX export settings
+msgid "Frame generation quality"
+msgstr "補幀品質"
+
+#. NVIDIA VFX export settings
+msgid "Off"
+msgstr "關閉"
+
+#. NVIDIA VFX export settings
+msgid "Low"
+msgstr "低"
+
+#. NVIDIA VFX export settings
+msgid "Medium"
+msgstr "中"
+
+#. NVIDIA VFX export settings
+msgid "High"
+msgstr "高"
+
+#. NVIDIA VFX export settings
+msgid "Ultra"
+msgstr "極高"

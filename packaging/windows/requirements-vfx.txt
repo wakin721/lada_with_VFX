@@ -1,0 +1,4 @@
+# Prefer NVIDIA's binary wheel over the PyPI wheel-stub source distribution.
+--extra-index-url https://pypi.nvidia.com
+--only-binary nvidia-vfx
+nvidia-vfx==0.2.0.0
