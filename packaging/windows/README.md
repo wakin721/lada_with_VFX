@@ -1,5 +1,8 @@
 ## Build exe
 
+For NVIDIA VFX, add `-withVfx`. A local build can also reuse a working installed
+Lada Python 3.13 runtime with `build_from_installed.py`; see [VFX build options](../../docs/vfx.md).
+
 ```powershell
 powershell -ExecutionPolicy Bypass ./packaging/windows/package_executable.ps1 -extra nvidia
 ```

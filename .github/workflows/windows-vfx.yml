@@ -54,7 +54,9 @@ jobs:
         with:
           version: '0.10.0'
       - name: Install FFmpeg
-        run: choco install ffmpeg vcredist2013 --yes --no-progress
+        run: |
+          choco install ffmpeg vcredist2013 --yes --no-progress
+          python -m pip install setuptools==80.9.0
       - uses: msys2/setup-msys2@v2
         if: env.BUILD_GUI == 'true'
         with:
@@ -62,10 +64,11 @@ jobs:
           update: true
       - name: Cache GTK build
         if: env.BUILD_GUI == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: p/build_gtk_release
-          key: gtk-win2022-py31312-gvs202610-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}
+          key: gtk-win2022-py31312-gvs202610-st809-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}-${{ github.run_id }}
+          restore-keys: gtk-win2022-py31312-gvs202610-st809-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}-
       - name: Build portable NVIDIA VFX package
         run: |
           $ErrorActionPreference = 'Stop'
@@ -91,3 +94,9 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Save GTK build progress
+        if: always() && env.BUILD_GUI == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: p/build_gtk_release
+          key: gtk-win2022-py31312-gvs202610-st809-${{ hashFiles('p/patches/gvsbuild_ffmpeg.patch') }}-${{ github.run_id }}

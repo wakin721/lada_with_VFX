@@ -64,6 +64,27 @@ the existing restoration models. Real-time playback performance is not promised.
 
 ## GitHub Actions
 
+### Build locally using an installed Lada runtime
+
+If a working Windows Python 3.13 Lada portable installation is available, it can
+supply the existing PyTorch, GTK and native dependencies. The local builder
+compiles this checkout's Python source, reuses the installed dependency bytecode
+and bootloaders, and produces a **separate** portable folder. It reads the old
+installation without modifying it. This does not rebuild the native libraries.
+
+Use Python 3.13 and an isolated build environment with `pyinstaller==6.18.0` and
+`nvidia-vfx==0.2.0.0` installed (use the NVIDIA wheel index listed above):
+
+```powershell
+python packaging/windows/build_from_installed.py --installed E:/Files/video_enhance/lada --output ./dist/lada-vfx-local
+```
+
+The output directory must not exist. Copy the result over the installation only
+after testing, and retain a backup. The clean build described below independently
+builds the GTK dependencies and packages the pinned project environment.
+
+### Clean Windows build
+
 The **Windows NVIDIA VFX** workflow runs timing/lifecycle tests, builds Windows
 CLI and GTK GUI executables, bundles VFX DLLs and license notices, and uploads a
 portable `.7z` artifact with checksums. Open Actions, select this workflow, and

@@ -18,41 +18,12 @@ def main():
 
     import av
     import numpy as np
-    from lada.utils.vfx import VfxOptions, VfxVideoWriter
-    from lada.utils.vfx_nvidia import NvidiaVfxBackend
+    from lada.utils.vfx import VfxOptions, create_video_writer
 
     options = VfxOptions(scale=2, denoise='LOW', multiplier=2)
     width, height, count, fps = 640, 360, 12, 24
-    backend = NvidiaVfxBackend(options, width, height, 'cuda:0')
-
-    class Writer:
-        def __init__(self):
-            self.container = av.open(str(path), 'w')
-            self.stream = self.container.add_stream('libx264', rate=fps * options.multiplier)
-            self.stream.width, self.stream.height = width * options.scale, height * options.scale
-            self.stream.pix_fmt = 'yuv420p'
-            self.stream.time_base = self.stream.codec_context.time_base = Fraction(1, fps * options.multiplier)
-
-        def write(self, image, pts, bgr2rgb=False):
-            frame = av.VideoFrame.from_ndarray(image, format='rgb24')
-            frame.pts = pts
-            frame.time_base = Fraction(1, fps * options.multiplier)
-            for packet in self.stream.encode(frame):
-                self.container.mux(packet)
-
-        def release(self):
-            try:
-                for packet in self.stream.encode(None):
-                    self.container.mux(packet)
-            finally:
-                self.container.close()
-
-    try:
-        writer = Writer()
-    except BaseException:
-        backend.close()
-        raise
-    with VfxVideoWriter(writer, backend, options, fps, Fraction(1, fps)) as vfx:
+    with create_video_writer(str(path), width, height, Fraction(fps), 'libx264', '-crf 18',
+                             time_base=Fraction(1, fps), vfx=options, device='cuda:0') as vfx:
         for index in range(count):
             image = np.zeros((height, width, 3), dtype=np.uint8)
             image[:, :, 2] = np.linspace(0, 180, width, dtype=np.uint8)

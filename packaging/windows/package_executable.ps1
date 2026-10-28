@@ -16,6 +16,7 @@ $global:PYINSTALLER_VERSION = "6.18.0"
 $global:GVSBUILD_VERSION = "2026.1.0"
 $global:PYTHON_VERSION = "3.13.12"
 $global:UV_VERSION = "0.10.0"
+$global:SETUPTOOLS_VERSION = "80.9.0"
 
 function Ask-YesNo {
     param([Parameter(Mandatory)] [string]$Question)
@@ -58,7 +59,8 @@ function Build-SystemDependencies {
     uv venv --clear --python $global:PYTHON_VERSION venv_gtk_release
     .\venv_gtk_release\Scripts\Activate.ps1
 
-    uv pip install gvsbuild==$global:GVSBUILD_VERSION
+    # gobject-introspection's compiler shim needs the pre-81 distutils API.
+    uv pip install gvsbuild==$global:GVSBUILD_VERSION "setuptools==$global:SETUPTOOLS_VERSION"
     uv pip install patch
     uv run --no-project python -m patch -p1 -d venv_gtk_release/lib/site-packages patches/gvsbuild_ffmpeg.patch
     uv pip uninstall patch
@@ -143,7 +145,7 @@ function Install-PythonDependencies {
     }
 
     # pin setuptools to fix build failure of gobject-introspection. Can be removed once https://github.com/wingtk/gvsbuild/pull/1715 is released
-    uv pip install pyinstaller==$global:PYINSTALLER_VERSION "setuptools<81.0.0"
+    uv pip install pyinstaller==$global:PYINSTALLER_VERSION "setuptools==$global:SETUPTOOLS_VERSION"
 
     uv pip install patch
     uv run --no-project python -m patch -p1 -d venv_release_win/lib/site-packages patches/increase_mms_time_limit.patch
