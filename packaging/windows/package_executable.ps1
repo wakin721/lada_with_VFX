@@ -63,11 +63,12 @@ function Build-SystemDependencies {
     uv run --no-project python -m patch -p1 -d venv_gtk_release/lib/site-packages patches/gvsbuild_ffmpeg.patch
     uv pip uninstall patch
 
-    $cleanArgument = if ($clean) { '--clean' } else { '' }
+    $cleanArguments = @()
+    if ($clean) { $cleanArguments += '--clean' }
 
     gvsbuild build `
         --configuration=release `
-        $cleanArgument `
+        @cleanArguments `
         --build-dir='./build_gtk_release' `
         --enable-gi `
         --py-wheel `
