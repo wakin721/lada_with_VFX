@@ -133,10 +133,10 @@ DLPack. The restoration output queue is bounded to four GPU frames.
 The preview keeps frames on GPU through VFX and performs a pinned-host download
 only at the GTK/GStreamer display boundary. Transfer synchronization waits for
 that stream rather than synchronizing the entire device. The existing Windows
-GTK sink still consumes CPU pixels, and the PyAV encoder still needs CPU images;
-this is not a fully zero-copy NVDEC/CUDA/NVENC pipeline.
+GTK sink still consumes CPU pixels. Decoding still uses CPU PyAV; CUDA direct
+encoding below removes the raw-frame download/upload at the export boundary.
 
-VFX export uses a separate CUDA copy stream and pinned host buffers. A bounded
+The original encoding presets use a separate CUDA copy stream and pinned host buffers. A bounded
 encoding worker waits for each frame's copy event and overlaps CPU preparation
 and encoding with subsequent GPU effects. Only the final frame stays buffered
 in VideoWriter for its duration, instead of another fifteen upscaled RGB frames.
@@ -144,6 +144,42 @@ For HEVC/H.264 NVENC, packed RGB input moves RGB-to-YUV conversion to the GPU;
 the encoded stream remains 8-bit YUV420p. Other encoders retain their existing
 input format. Encoder dimensions are validated before loading VFX models, so an
 unsupported output size fails promptly with the dimensions in the error.
+
+### CUDA direct input
+
+Select **CUDA direct input** in the export encoder preset list:
+
+- `hevc-nvidia-cuda-fast`: HEVC P4, constant QP 23, no lookahead or B frames.
+- `h264-nvidia-cuda-fast`: the same settings for H.264.
+- `hevc-nvidia-cuda-hq`: HEVC P7, constant QP 20, 32-frame lookahead and 3 B frames
+  (B frames are disabled for VFR, as in the original export path).
+
+These presets require `PyNvVideoCodec==2.2.3` (included in Windows VFX builds).
+Restoration composition, VFX, RGB packing and NVENC input remain on the selected
+CUDA device. Only compressed packets are copied to the host for PyAV muxing.
+Producer events and an explicit encoding stream protect tensor lifetime across
+threads; the handoff queue remains bounded. Original PTS, final-frame duration,
+audio remuxing and pause/resume are retained. No raw frame calls `.cpu()` in this
+encoding path. It works with VFX disabled too.
+
+The CUDA HQ preset is a separate quality recipe: it does **not** translate the
+original HQ preset's explicit spatial AQ strength 6 or B-reference mode `middle`;
+those controls are not exposed by this SDK binding. Original presets remain
+available, and unsupported custom CUDA options fail instead of being silently
+discarded. CUDA presets do not silently fall back to CPU input if initialization
+fails. Select an original preset to use the compatibility path.
+
+CLI example:
+
+```sh
+lada-cli --input input.mp4 --output output.mp4 --encoding-preset hevc-nvidia-cuda-fast --vfx-scale 2 --vfx-denoise LOW --vfx-frame-multiplier 2
+```
+
+Hardware validation (including cross-stream colors, sparse VFR and CFR B frames):
+
+```sh
+python scripts/check_cuda_encoding.py /path/to/test-outputs
+```
 
 Higher GPU occupancy is not itself a speed guarantee. Decode, frame transfers,
 CPU packing, encoder settings and the chosen VFX quality can limit throughput.

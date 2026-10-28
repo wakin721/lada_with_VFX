@@ -29,6 +29,7 @@ class FrameRestorerOptions:
     fp16_enabled: bool
     detect_face_mosaics: bool
     vfx: VfxOptions | None = None
+    gpu_output: bool = False
 
 class FrameRestorerOptionsBuilder:
     def __init__(self, initial: FrameRestorerOptions | None = None):
@@ -45,6 +46,7 @@ class FrameRestorerOptionsBuilder:
                 "fp16_enabled": initial.fp16_enabled,
                 "detect_face_mosaics": initial.detect_face_mosaics,
                 "vfx": initial.vfx,
+                "gpu_output": initial.gpu_output,
             }
 
     def mosaic_restoration_model_name(self, value: str) -> 'FrameRestorerOptionsBuilder':
@@ -149,7 +151,7 @@ class FrameRestorerProvider:
                              self.models_cache["mosaic_restoration_model"],
                              self.models_cache["mosaic_restoration_model_preferred_pad_mode"],
                              self.options.mosaic_detection,
-                             output_device=self.options.device if self.options.vfx and self.options.vfx.enabled else None)
+                             output_device=self.options.device if self.options.gpu_output or (self.options.vfx and self.options.vfx.enabled) else None)
 
     def _clear_cache(self):
         if self.models_cache is None:

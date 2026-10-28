@@ -441,6 +441,8 @@ class ExportView(Gtk.Widget):
         def run_export():
             success = True
             progress_update_step_size = 100
+            from lada.utils.cuda_video_writer import uses_cuda_input
+            preset = utils.get_selected_preset(self.config)
             frame_restorer_options = FrameRestorerOptions(self._config.mosaic_restoration_model,
                                                           self._config.mosaic_detection_model,
                                                           video_utils.get_video_meta_data(source_file.get_path()),
@@ -450,7 +452,8 @@ class ExportView(Gtk.Widget):
                                                           False,
                                                           self._config.fp16_enabled,
                                                           self._config.detect_face_mosaics,
-                                                          vfx=VfxOptions.from_config(self._config))
+                                                          vfx=VfxOptions.from_config(self._config),
+                                                          gpu_output=uses_cuda_input(preset.encoder_options))
             video_metadata = frame_restorer_options.video_metadata
             frame_restorer_provider = FRAME_RESTORER_PROVIDER
             frame_restorer_provider.init(frame_restorer_options)

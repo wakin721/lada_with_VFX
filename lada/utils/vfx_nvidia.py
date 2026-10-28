@@ -4,7 +4,7 @@
 
 
 class NvidiaVfxBackend:
-    def __init__(self, options, width, height, device, *, gpu_output=False, deferred_output=False):
+    def __init__(self, options, width, height, device, *, gpu_output=False, deferred_output=False, cuda_encoding=False):
         import torch
         try:
             from nvvfx import VideoSuperRes, VideoFrameGeneration
@@ -14,6 +14,7 @@ class NvidiaVfxBackend:
 
         self.torch = torch
         self.gpu_output = gpu_output
+        self.cuda_encoding = cuda_encoding
         self.deferred_output = deferred_output
         self.device = torch.device(device)
         if self.device.type != 'cuda' or not torch.cuda.is_available():
@@ -83,6 +84,9 @@ class NvidiaVfxBackend:
         with torch.cuda.device(self.device):
             result = self._run(self.upscaler, frame) if self.upscaler else frame
             result = result.mul(255).round().clamp(0, 255).to(torch.uint8).permute(1, 2, 0)
+            if self.cuda_encoding:
+                from lada.utils.cuda_video_writer import CudaFrame
+                return CudaFrame.capture(result.contiguous())
             if self.gpu_output:
                 # GStreamer's appsrc consumes BGR. Convert before the sole D2H copy.
                 return result[..., [2, 1, 0]].contiguous()

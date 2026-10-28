@@ -121,10 +121,11 @@ def setup_argparser() -> argparse.ArgumentParser:
 def process_video_file(input_path: str, output_path: str, temp_dir_path: str, device: torch.device, mosaic_restoration_model, mosaic_detection_model,
                        mosaic_restoration_model_name, preferred_pad_mode, max_clip_length, encoder: str, encoder_options: str, mp4_fast_start, vfx: VfxOptions | None = None):
     video_metadata = get_video_meta_data(input_path)
+    from lada.utils.cuda_video_writer import uses_cuda_input
 
     frame_restorer = FrameRestorer(device, input_path, max_clip_length, mosaic_restoration_model_name,
                  mosaic_detection_model, mosaic_restoration_model, preferred_pad_mode,
-                 output_device=device if vfx and vfx.enabled else None)
+                 output_device=device if (vfx and vfx.enabled) or uses_cuda_input(encoder_options) else None)
     success = True
     video_tmp_file_output_path = os.path.join(temp_dir_path, f"{os.path.basename(os.path.splitext(output_path)[0])}.tmp{os.path.splitext(output_path)[1]}")
     pathlib.Path(output_path).parent.mkdir(exist_ok=True, parents=True)

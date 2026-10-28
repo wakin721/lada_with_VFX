@@ -2,3 +2,4 @@
 --extra-index-url https://pypi.nvidia.com
 --only-binary nvidia-vfx
 nvidia-vfx==0.2.0.0
+PyNvVideoCodec==2.2.3

@@ -98,8 +98,11 @@ def main():
     if args.refresh and not (output / '_internal/python313.dll').is_file():
         parser.error('--refresh requires an existing staging runtime')
     vfx_distribution = importlib.metadata.distribution('nvidia-vfx')
+    codec_distribution = importlib.metadata.distribution('PyNvVideoCodec')
     if vfx_distribution.version != '0.2.0.0':
         parser.error('This build targets nvidia-vfx==0.2.0.0')
+    if codec_distribution.version != '2.2.3':
+        parser.error('This build targets PyNvVideoCodec==2.2.3')
 
     output.mkdir(parents=True, exist_ok=args.refresh)
     if not args.refresh:
@@ -126,7 +129,8 @@ def main():
                 entries[name] = (name, filename, 'PYMODULE')
                 code_dict[name] = pyz.extract(name)
 
-    package_roots = [(root / 'lada', 'lada'), (Path(vfx_distribution.locate_file('nvvfx')), 'nvvfx')]
+    package_roots = [(root / 'lada', 'lada'), (Path(vfx_distribution.locate_file('nvvfx')), 'nvvfx'),
+                     (Path(codec_distribution.locate_file('PyNvVideoCodec')), 'PyNvVideoCodec')]
     compiled_count = 0
     for package_root, package_name in package_roots:
         for path in sorted(package_root.rglob('*.py')):
@@ -145,14 +149,14 @@ def main():
         rebuild_exe(installed / executable, output / executable, pyz_path,
                     (root / f'lada/{entry}/main.py').read_text(encoding='utf-8'))
 
-    target_vfx = output / '_internal/nvvfx'
-    shutil.copytree(package_roots[1][0], target_vfx, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns('__pycache__'))
-    for file in vfx_distribution.files:
-        if '.dist-info' in file.parts[0]:
-            target = output / '_internal' / str(file)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(vfx_distribution.locate_file(file), target)
+    for (package_root, package_name), distribution in zip(package_roots[1:], (vfx_distribution, codec_distribution)):
+        shutil.copytree(package_root, output / '_internal' / package_name, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns('__pycache__'))
+        for file in distribution.files:
+            if '.dist-info' in file.parts[0]:
+                target = output / '_internal' / str(file)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(distribution.locate_file(file), target)
     for pattern in ('*.ui', '*.css', '*.gresource', '*.csv'):
         for path in (root / 'lada').rglob(pattern):
             target = output / '_internal' / path.relative_to(root)

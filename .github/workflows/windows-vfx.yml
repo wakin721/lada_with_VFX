@@ -102,6 +102,8 @@ jobs:
           if (!(Test-Path ./dist/lada/_internal/nvvfx)) { throw 'Missing nvvfx package' }
           $native = Get-ChildItem ./dist/lada/_internal/nvvfx -Recurse -File | Where-Object { $_.Extension -in '.dll', '.pyd' }
           if (!$native) { throw 'Missing NVIDIA VFX native libraries' }
+          $cudaCodec = Get-ChildItem ./dist/lada/_internal/PyNvVideoCodec -Filter '*.pyd' -File
+          if ($cudaCodec.Count -lt 3) { throw 'Missing CUDA video encoder native libraries' }
           # Upstream intentionally substitutes polars-lts-cpu for polars, so a
           # blanket metadata-only pip check incorrectly flags that substitution.
           ./venv_release_win/Scripts/python.exe -c "import torch, av, nvvfx, polars; print(torch.__version__, nvvfx.__version__)"

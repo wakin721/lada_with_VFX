@@ -137,6 +137,38 @@ def create_video_writer(output_path, width, height, fps, encoder, encoder_option
 
     options = vfx or VfxOptions()
     end_time = (Fraction(start_pts or 0) * Fraction(time_base) + Fraction(str(duration))) if duration is not None and time_base is not None else None
+    from lada.utils.cuda_video_writer import uses_cuda_input
+    if uses_cuda_input(encoder_options):
+        from lada.utils.cuda_video_writer import CudaVideoWriter, CudaPassthroughBackend
+        from lada.utils.vfx_encoding import EncodingWorker
+        if time_base is None or Fraction(time_base) <= 0 or Fraction(fps) <= 0:
+            raise ValueError('CUDA export requires a valid video time base and frame rate')
+        writer = CudaVideoWriter(output_path, width * options.scale, height * options.scale,
+            fps * options.multiplier, encoder, encoder_options,
+            Fraction(time_base) / options.multiplier, device, mp4_fast_start, variable_frame_rate)
+        backend = None
+        try:
+            if end_time is not None:
+                writer.set_end_time(end_time)
+            if options.enabled:
+                from lada.utils.vfx_nvidia import NvidiaVfxBackend
+                backend = NvidiaVfxBackend(options, width, height, device, cuda_encoding=True)
+            else:
+                backend = CudaPassthroughBackend(device)
+            if asynchronous_encoding:
+                capacity = max(1, min(2, (128 * 1024 * 1024) // (width * height * options.scale ** 2 * 4)))
+                writer = EncodingWorker(writer, capacity=capacity)
+            import logging
+            logging.getLogger(__name__).info('CUDA-resident NVENC input enabled: raw export frames stay on GPU')
+            return VfxVideoWriter(writer, backend, options, fps, time_base,
+                end_pts=end_time / Fraction(time_base) if end_time is not None else None)
+        except BaseException:
+            with suppress(Exception):
+                writer.release()
+            if backend is not None:
+                with suppress(Exception):
+                    backend.close()
+            raise
     if not options.enabled:
         writer = VideoWriter(output_path, width, height, fps, encoder, encoder_options,
                            time_base=time_base, mp4_fast_start=mp4_fast_start,

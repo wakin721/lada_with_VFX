@@ -217,6 +217,12 @@ if args.with_vfx:
     # The wheel contains native DLLs, model resources and dynamic Python imports.
     vfx_datas, vfx_binaries, vfx_hiddenimports = collect_all('nvvfx')
     vfx_datas += copy_metadata('nvidia-vfx')
+    # Do not import the package while collecting it: CI has no NVIDIA driver.
+    # The SDK chooses a driver-specific extension dynamically at runtime.
+    import importlib.util
+    codec_root = pathlib.Path(importlib.util.find_spec('PyNvVideoCodec').origin).parent
+    vfx_datas += [(str(codec_root), 'PyNvVideoCodec')]
+    vfx_datas += copy_metadata('PyNvVideoCodec')
     if not vfx_binaries:
         raise RuntimeError('NVIDIA VFX native libraries were not collected')
 
