@@ -4,7 +4,7 @@
 
 
 class NvidiaVfxBackend:
-    def __init__(self, options, width, height, device, *, gpu_output=False):
+    def __init__(self, options, width, height, device, *, gpu_output=False, deferred_output=False):
         import torch
         try:
             from nvvfx import VideoSuperRes, VideoFrameGeneration
@@ -14,10 +14,12 @@ class NvidiaVfxBackend:
 
         self.torch = torch
         self.gpu_output = gpu_output
+        self.deferred_output = deferred_output
         self.device = torch.device(device)
         if self.device.type != 'cuda' or not torch.cuda.is_available():
             raise RuntimeError('NVIDIA VFX requires an NVIDIA CUDA device; select it in settings.')
         self.device = torch.device('cuda', self.device.index if self.device.index is not None else torch.cuda.current_device())
+        self.download_stream = torch.cuda.Stream(device=self.device) if deferred_output else None
         if options.multiplier > 1 and torch.cuda.get_device_capability(self.device) not in ((8, 9), (9, 0), (10, 0), (12, 0), (12, 1)):
             raise RuntimeError('NVIDIA frame generation requires Ada/Blackwell on Windows, '
                                'or Ada/Blackwell/Hopper on Linux.')
@@ -84,6 +86,17 @@ class NvidiaVfxBackend:
             if self.gpu_output:
                 # GStreamer's appsrc consumes BGR. Convert before the sole D2H copy.
                 return result[..., [2, 1, 0]].contiguous()
+            if self.deferred_output:
+                from lada.utils.vfx_encoding import DownloadedFrame
+                result = result.contiguous()
+                host = torch.empty(result.shape, dtype=result.dtype, device='cpu', pin_memory=True)
+                self.download_stream.wait_stream(torch.cuda.current_stream(self.device))
+                ready = torch.cuda.Event()
+                with torch.cuda.stream(self.download_stream):
+                    host.copy_(result, non_blocking=True)
+                    result.record_stream(self.download_stream)
+                    ready.record(self.download_stream)
+                return DownloadedFrame(host, ready, result)
             return result.contiguous().cpu().numpy()
 
     def close(self):

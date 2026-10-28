@@ -106,6 +106,9 @@ jobs:
           # blanket metadata-only pip check incorrectly flags that substitution.
           ./venv_release_win/Scripts/python.exe -c "import torch, av, nvvfx, polars; print(torch.__version__, nvvfx.__version__)"
           ./venv_release_win/Scripts/python.exe scripts/check_vfr_timing.py
+          if ($env:BUILD_GUI -eq 'true') {
+            ./venv_release_win/Scripts/python.exe scripts/check_settings_sync.py --gtk-runtime ./build_gtk_release/gtk/x64/release
+          }
       - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:

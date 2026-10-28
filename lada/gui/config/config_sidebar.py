@@ -75,6 +75,9 @@ class ConfigSidebar(Gtk.Box):
         self._restoration_models_actions_rows: list[Adw.ActionRow] = []
 
     def init_sidebar_from_config(self, config: Config):
+        # set_model() selects its first row and emits notify::selected. During
+        # refresh those notifications must never overwrite the shared Config.
+        self.init_done = False
         self.check_button_show_mosaic_detections.props.active = config.show_mosaic_detections
 
         # init device
@@ -86,7 +89,7 @@ class ConfigSidebar(Gtk.Box):
             if config.device == device:
                 configured_gpu_selection_idx = gpu_selection_idx
         self.combo_row_gpu.set_model(combo_row_gpu_list)
-        if configured_gpu_selection_idx:
+        if configured_gpu_selection_idx is not None:
             self.combo_row_gpu.set_selected(configured_gpu_selection_idx)
 
         # init restoration model

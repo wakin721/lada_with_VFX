@@ -408,7 +408,7 @@ class VideoWriter:
         }
         return parsed_encoder_options
 
-    def __init__(self, output_path, width, height, fps, encoder: str, encoder_options: str, time_base=None, mp4_fast_start=False, variable_frame_rate=False):
+    def __init__(self, output_path, width, height, fps, encoder: str, encoder_options: str, time_base=None, mp4_fast_start=False, variable_frame_rate=False, rgb_input=False):
         container_options = {}
         if mp4_fast_start and (output_path.lower().endswith(".mp4") or output_path.lower().endswith(".mov")):
             container_options["movflags"] = "+frag_keyframe+empty_moov+faststart"
@@ -423,6 +423,10 @@ class VideoWriter:
             os.environ["SVT_LOG"] = "1"
 
         target_pix_fmt = 'yuv420p'
+        if rgb_input and encoder in ('hevc_nvenc', 'h264_nvenc'):
+            # NVENC accepts packed RGB and performs RGB->YUV on the GPU. Avoid
+            # CPU swscale conversion of every high-resolution VFX output frame.
+            target_pix_fmt = 'rgb0'
         if self.is_qsv_encoder:
             target_pix_fmt = 'nv12'
         

@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import dataclass
 from fractions import Fraction
 import heapq
+from contextlib import suppress
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,7 @@ class VfxVideoWriter:
 
 
 def create_video_writer(output_path, width, height, fps, encoder, encoder_options,
-                        time_base=None, mp4_fast_start=False, *, vfx=None, device='cuda:0', duration=None, start_pts=0, variable_frame_rate=False):
+                        time_base=None, mp4_fast_start=False, *, vfx=None, device='cuda:0', duration=None, start_pts=0, variable_frame_rate=False, asynchronous_encoding=True):
     from lada.utils.video_utils import VideoWriter
 
     options = vfx or VfxOptions()
@@ -147,16 +148,44 @@ def create_video_writer(output_path, width, height, fps, encoder, encoder_option
         raise ValueError('VFX export requires a valid video time base and frame rate')
     from lada.utils.vfx_nvidia import NvidiaVfxBackend
 
-    backend = NvidiaVfxBackend(options, width, height, device)
+    backend = None
+    writer = None
     try:
         writer = VideoWriter(output_path, width * options.scale, height * options.scale,
                              fps * options.multiplier, encoder, encoder_options,
                              time_base=Fraction(time_base) / options.multiplier,
-                             mp4_fast_start=mp4_fast_start, variable_frame_rate=variable_frame_rate)
+                             mp4_fast_start=mp4_fast_start, variable_frame_rate=variable_frame_rate,
+                             rgb_input=encoder in ('hevc_nvenc', 'h264_nvenc'))
         if end_time is not None:
             writer.set_end_time(end_time)
+        # Validate the chosen encoder/output size before loading VFX models.
+        try:
+            writer.video_stream.codec_context.open()
+        except Exception as error:
+            raise RuntimeError(f'Encoder {encoder} cannot open {width * options.scale}x{height * options.scale} output. '
+                               f'Reduce the VFX scale or choose another encoder. Details: {error}') from error
+        # VfxVideoWriter already repairs timestamps. Do not keep another fifteen
+        # upscaled RGB frames buffered in VideoWriter (up to several GB at 4x).
+        # Keep only the final frame pending so its VFR display duration can be
+        # assigned at release(), before the last encoded packet is muxed.
+        writer.BUFFER_MAX_SIZE = 2
+        backend = NvidiaVfxBackend(options, width, height, device,
+                                   deferred_output=asynchronous_encoding)
+        if asynchronous_encoding:
+            from lada.utils.vfx_encoding import EncodingWorker
+            output_bytes = width * height * options.scale ** 2 * 3
+            capacity = max(1, min(2, (128 * 1024 * 1024) // output_bytes))
+            writer = EncodingWorker(writer, capacity=capacity)
     except BaseException:
-        backend.close()
+        if backend is not None:
+            with suppress(Exception):
+                backend.close()
+        if writer is not None:
+            with suppress(Exception):
+                writer.release()
+            if hasattr(writer, 'output_container'):
+                with suppress(Exception):
+                    writer.output_container.close()
         raise
     return VfxVideoWriter(writer, backend, options, fps, time_base,
                           end_pts=end_time / Fraction(time_base) if end_time is not None else None)

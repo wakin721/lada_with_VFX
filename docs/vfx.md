@@ -32,6 +32,10 @@ configuration and are locked while export is running. Enable **VFX in preview**
 to apply the same settings during playback. Changes reset the preview at its
 current position; seeks discard frame interpolation history.
 
+Watching and export share the same effect settings. Refreshing either sidebar
+does not write dropdown defaults back into the configuration. The Windows CI
+also exercises real GTK controls and a settings save/reload round trip.
+
 A practical starting point for an RTX 5070 Ti is 2x super resolution, LOW denoise,
 2x frame rate, HIGH super-resolution quality and MEDIUM frame-generation quality.
 This is a starting preset, not a performance guarantee. Try a short ordinary video
@@ -131,6 +135,21 @@ only at the GTK/GStreamer display boundary. Transfer synchronization waits for
 that stream rather than synchronizing the entire device. The existing Windows
 GTK sink still consumes CPU pixels, and the PyAV encoder still needs CPU images;
 this is not a fully zero-copy NVDEC/CUDA/NVENC pipeline.
+
+VFX export uses a separate CUDA copy stream and pinned host buffers. A bounded
+encoding worker waits for each frame's copy event and overlaps CPU preparation
+and encoding with subsequent GPU effects. Only the final frame stays buffered
+in VideoWriter for its duration, instead of another fifteen upscaled RGB frames.
+For HEVC/H.264 NVENC, packed RGB input moves RGB-to-YUV conversion to the GPU;
+the encoded stream remains 8-bit YUV420p. Other encoders retain their existing
+input format. Encoder dimensions are validated before loading VFX models, so an
+unsupported output size fails promptly with the dimensions in the error.
+
+Higher GPU occupancy is not itself a speed guarantee. Decode, frame transfers,
+CPU packing, encoder settings and the chosen VFX quality can limit throughput.
+For example, 4x spatial scaling processes sixteen times as many pixels before
+any additional frame-rate multiplication. A 1080x2400 portrait source at 4x
+becomes 4320x9600, which the tested HEVC NVENC configuration rejects.
 
 The Windows build uses a dedicated GStreamer plugin registry per installation
 and runtime revision to avoid reusing stale portable-app plugin paths. Decode,
